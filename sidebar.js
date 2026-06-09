@@ -3,7 +3,9 @@ const STORAGE_KEYS = {
   model: "deepseekModel",
   theme: "deepseekTheme",
   systemPrompt: "deepseekSystemPrompt",
-  messages: "deepseekMessages"
+  messages: "deepseekMessages",
+  sessions: "deepseekSessions",
+  currentSessionId: "deepseekCurrentSessionId"
 };
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
@@ -14,6 +16,11 @@ const statusText = document.getElementById("statusText");
 const settingsButton = document.getElementById("settingsButton");
 const settingsPanel = document.getElementById("settingsPanel");
 const closeSettingsButton = document.getElementById("closeSettingsButton");
+const historyButton = document.getElementById("historyButton");
+const historyPanel = document.getElementById("historyPanel");
+const closeHistoryButton = document.getElementById("closeHistoryButton");
+const newChatButton = document.getElementById("newChatButton");
+const historyList = document.getElementById("historyList");
 const apiKeyInput = document.getElementById("apiKeyInput");
 const modelSelect = document.getElementById("modelSelect");
 const themeSelect = document.getElementById("themeSelect");
@@ -31,7 +38,9 @@ let settings = {
   model: DEFAULT_MODEL,
   theme: DEFAULT_THEME,
   systemPrompt: "",
-  messages: []
+  messages: [],
+  sessions: [],
+  currentSessionId: ""
 };
 
 function storageGet(keys) {
@@ -51,14 +60,167 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = nextTheme;
 }
 
+function createSession(messages = []) {
+  const now = Date.now();
+
+  return {
+    id: `session-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    title: buildSessionTitle(messages),
+    messages,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function buildSessionTitle(messages) {
+  const firstUserMessage = messages.find((message) => message.role === "user" && message.content.trim());
+  const title = firstUserMessage?.content.trim() || "新对话";
+
+  return title.length > 24 ? `${title.slice(0, 24)}...` : title;
+}
+
+function normalizeSessions(value, legacyMessages) {
+  const sessions = Array.isArray(value)
+    ? value
+        .filter((session) => session && typeof session.id === "string")
+        .map((session) => ({
+          id: session.id,
+          title: session.title || buildSessionTitle(Array.isArray(session.messages) ? session.messages : []),
+          messages: Array.isArray(session.messages) ? session.messages : [],
+          createdAt: Number.isFinite(session.createdAt) ? session.createdAt : Date.now(),
+          updatedAt: Number.isFinite(session.updatedAt) ? session.updatedAt : Date.now()
+        }))
+    : [];
+
+  if (sessions.length > 0) {
+    return sessions;
+  }
+
+  if (Array.isArray(legacyMessages) && legacyMessages.length > 0) {
+    return [createSession(legacyMessages)];
+  }
+
+  return [createSession()];
+}
+
+function getCurrentSession() {
+  let session = settings.sessions.find((item) => item.id === settings.currentSessionId);
+
+  if (!session) {
+    session = settings.sessions[0] || createSession();
+    if (!settings.sessions.includes(session)) {
+      settings.sessions.unshift(session);
+    }
+    settings.currentSessionId = session.id;
+  }
+
+  return session;
+}
+
+function syncCurrentSessionMessages() {
+  const session = getCurrentSession();
+  settings.messages = session.messages;
+}
+
+async function saveSessions() {
+  await storageSet({
+    [STORAGE_KEYS.sessions]: settings.sessions,
+    [STORAGE_KEYS.currentSessionId]: settings.currentSessionId,
+    [STORAGE_KEYS.messages]: settings.messages
+  });
+}
+
+async function saveCurrentSession() {
+  const session = getCurrentSession();
+  session.messages = settings.messages;
+  session.title = buildSessionTitle(settings.messages);
+  session.updatedAt = Date.now();
+
+  settings.sessions = [
+    session,
+    ...settings.sessions.filter((item) => item.id !== session.id)
+  ];
+
+  await saveSessions();
+}
+
+function formatSessionTime(timestamp) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(timestamp));
+}
+
+function renderHistory() {
+  historyList.innerHTML = "";
+
+  if (settings.sessions.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "暂无历史对话";
+    historyList.appendChild(empty);
+    return;
+  }
+
+  for (const session of settings.sessions) {
+    const item = document.createElement("div");
+    item.className = `history-item${session.id === settings.currentSessionId ? " current" : ""}`;
+
+    const selectButton = document.createElement("button");
+    selectButton.className = "history-select";
+    selectButton.type = "button";
+    selectButton.dataset.sessionId = session.id;
+
+    const title = document.createElement("span");
+    title.className = "history-title";
+    title.textContent = session.title || "新对话";
+
+    const meta = document.createElement("span");
+    meta.className = "history-meta";
+    meta.textContent = `${session.messages.length} 条 · ${formatSessionTime(session.updatedAt)}`;
+
+    selectButton.append(title, meta);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "history-delete";
+    deleteButton.type = "button";
+    deleteButton.dataset.sessionId = session.id;
+    deleteButton.setAttribute("aria-label", `删除 ${session.title || "新对话"}`);
+    deleteButton.setAttribute("title", "删除");
+    deleteButton.textContent = "×";
+
+    item.append(selectButton, deleteButton);
+    historyList.appendChild(item);
+  }
+}
+
 function openSettings() {
+  closeHistory(false);
   settingsPanel.classList.add("open");
   apiKeyInput.focus();
 }
 
-function closeSettings() {
+function closeSettings(restoreFocus = true) {
   settingsPanel.classList.remove("open");
-  settingsButton.focus();
+  if (restoreFocus) {
+    settingsButton.focus();
+  }
+}
+
+function openHistory() {
+  closeSettings(false);
+  renderHistory();
+  historyPanel.classList.add("open");
+  newChatButton.focus();
+}
+
+function closeHistory(restoreFocus = true) {
+  historyPanel.classList.remove("open");
+  if (restoreFocus) {
+    historyButton.focus();
+  }
 }
 
 function renderMessages() {
@@ -278,19 +440,27 @@ function buildApiMessages() {
 }
 
 async function saveMessages() {
-  await storageSet({ [STORAGE_KEYS.messages]: settings.messages });
+  await saveCurrentSession();
 }
 
 async function loadSettings() {
   const data = await storageGet(Object.values(STORAGE_KEYS));
+  const sessions = normalizeSessions(data[STORAGE_KEYS.sessions], data[STORAGE_KEYS.messages]);
+  const currentSessionId = sessions.some((session) => session.id === data[STORAGE_KEYS.currentSessionId])
+    ? data[STORAGE_KEYS.currentSessionId]
+    : sessions[0].id;
 
   settings = {
     apiKey: data[STORAGE_KEYS.apiKey] || "",
     model: data[STORAGE_KEYS.model] || DEFAULT_MODEL,
     theme: data[STORAGE_KEYS.theme] || DEFAULT_THEME,
     systemPrompt: data[STORAGE_KEYS.systemPrompt] || "",
-    messages: Array.isArray(data[STORAGE_KEYS.messages]) ? data[STORAGE_KEYS.messages] : []
+    messages: [],
+    sessions,
+    currentSessionId
   };
+
+  syncCurrentSessionMessages();
 
   apiKeyInput.value = settings.apiKey;
   modelSelect.value = settings.model;
@@ -298,6 +468,7 @@ async function loadSettings() {
   systemPromptInput.value = settings.systemPrompt;
   applyTheme(settings.theme);
   updateStatus(settings.apiKey ? `已连接 · ${settings.model}` : "未连接");
+  await saveSessions();
   renderMessages();
 }
 
@@ -347,8 +518,21 @@ settingsButton.addEventListener("click", () => {
   openSettings();
 });
 
+historyButton.addEventListener("click", () => {
+  if (historyPanel.classList.contains("open")) {
+    closeHistory();
+    return;
+  }
+
+  openHistory();
+});
+
 closeSettingsButton.addEventListener("click", () => {
   closeSettings();
+});
+
+closeHistoryButton.addEventListener("click", () => {
+  closeHistory();
 });
 
 settingsPanel.addEventListener("click", (event) => {
@@ -357,10 +541,68 @@ settingsPanel.addEventListener("click", (event) => {
   }
 });
 
+historyPanel.addEventListener("click", (event) => {
+  if (event.target === historyPanel) {
+    closeHistory();
+  }
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && settingsPanel.classList.contains("open")) {
     closeSettings();
   }
+
+  if (event.key === "Escape" && historyPanel.classList.contains("open")) {
+    closeHistory();
+  }
+});
+
+newChatButton.addEventListener("click", async () => {
+  const session = createSession();
+  settings.sessions.unshift(session);
+  settings.currentSessionId = session.id;
+  settings.messages = session.messages;
+  await saveSessions();
+  renderMessages();
+  renderHistory();
+  closeHistory();
+  messageInput.focus();
+});
+
+historyList.addEventListener("click", async (event) => {
+  const selectButton = event.target.closest(".history-select");
+  const deleteButton = event.target.closest(".history-delete");
+
+  if (selectButton) {
+    const session = settings.sessions.find((item) => item.id === selectButton.dataset.sessionId);
+    if (!session) return;
+
+    settings.currentSessionId = session.id;
+    settings.messages = session.messages;
+    await saveSessions();
+    renderMessages();
+    closeHistory();
+    messageInput.focus();
+    return;
+  }
+
+  if (!deleteButton) return;
+
+  const sessionId = deleteButton.dataset.sessionId;
+  settings.sessions = settings.sessions.filter((session) => session.id !== sessionId);
+
+  if (settings.sessions.length === 0) {
+    const session = createSession();
+    settings.sessions = [session];
+    settings.currentSessionId = session.id;
+  } else if (settings.currentSessionId === sessionId) {
+    settings.currentSessionId = settings.sessions[0].id;
+  }
+
+  syncCurrentSessionMessages();
+  await saveSessions();
+  renderMessages();
+  renderHistory();
 });
 
 saveSettingsButton.addEventListener("click", async () => {
@@ -417,6 +659,7 @@ chatForm.addEventListener("submit", async (event) => {
   settings.messages.push({ role: "user", content });
   appendMessage("user", content);
   messageInput.value = "";
+  await saveMessages();
 
   const assistantBody = appendMessage("assistant", "正在思考...");
   sendButton.disabled = true;

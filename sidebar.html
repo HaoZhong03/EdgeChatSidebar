@@ -46,6 +46,19 @@
         </div>
       </section>
 
+      <section id="historyPanel" class="history" aria-label="历史对话" aria-modal="true" role="dialog">
+        <div class="history-dialog">
+          <div class="settings-titlebar">
+            <h2>历史对话</h2>
+            <button id="closeHistoryButton" class="icon-button" type="button" aria-label="关闭历史对话" title="关闭历史对话">
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+          <button id="newChatButton" class="new-chat-button" type="button">新建对话</button>
+          <div id="historyList" class="history-list" aria-label="历史对话列表"></div>
+        </div>
+      </section>
+
       <section id="messages" class="messages" aria-live="polite"></section>
 
       <form id="chatForm" class="composer">
@@ -58,9 +71,14 @@
 
       <div class="statusbar" aria-label="状态栏">
         <p id="statusText">未连接</p>
-        <button id="settingsButton" class="icon-button" type="button" aria-label="设置" title="设置">
-          <span aria-hidden="true">⚙️</span>
-        </button>
+        <div class="status-actions">
+          <button id="historyButton" class="icon-button" type="button" aria-label="历史对话" title="历史对话">
+            <span aria-hidden="true">📄</span>
+          </button>
+          <button id="settingsButton" class="icon-button" type="button" aria-label="设置" title="设置">
+            <span aria-hidden="true">⚙️</span>
+          </button>
+        </div>
       </div>
     </main>
 

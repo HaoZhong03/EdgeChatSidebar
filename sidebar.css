@@ -135,7 +135,8 @@ button {
   color: var(--text);
 }
 
-.settings {
+.settings,
+.history {
   display: none;
   position: fixed;
   inset: 0;
@@ -145,11 +146,13 @@ button {
   background: rgba(15, 23, 42, 0.42);
 }
 
-.settings.open {
+.settings.open,
+.history.open {
   display: grid;
 }
 
-.settings-dialog {
+.settings-dialog,
+.history-dialog {
   display: grid;
   gap: 10px;
   width: min(100%, 420px);
@@ -181,6 +184,78 @@ button {
   width: 32px;
   height: 32px;
   flex: 0 0 auto;
+  font-size: 18px;
+}
+
+.new-chat-button {
+  min-height: 38px;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(52vh, 360px);
+  overflow-y: auto;
+}
+
+.history-empty {
+  padding: 16px 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.history-select,
+.history-delete {
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.history-select {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.history-item.current .history-select {
+  border: 1px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+}
+
+.history-title {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.history-delete {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-height: 34px;
   font-size: 18px;
 }
 
@@ -487,6 +562,13 @@ button {
   width: 30px;
   height: 30px;
   flex: 0 0 auto;
+}
+
+.status-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
 }
 
 #sendButton:disabled,

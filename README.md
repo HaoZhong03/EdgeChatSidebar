@@ -1,4 +1,4 @@
-# Edge Sidebar Chat
+# Edge Chat Sidebar
 
 这是一个 Microsoft Edge 侧栏扩展，可以在浏览器侧栏中调用 LLM API 进行多轮对话。
 
@@ -7,7 +7,7 @@
 1. 打开 Edge，进入 `edge://extensions/`。
 2. 打开“开发人员模式”。
 3. 点击“加载解压缩的扩展”。
-4. 选择本文件夹：`C:\Users\25026\Documents\EdgeChatSidebar`。
+4. 选择本文件夹：`{YOUR_PATH}\EdgeChatSidebar`。
 5. 点击浏览器工具栏中的扩展按钮，即可打开侧栏。
 
 ## 使用
