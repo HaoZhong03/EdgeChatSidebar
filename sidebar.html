@@ -8,16 +8,6 @@
   </head>
   <body>
     <main class="app">
-      <header class="topbar">
-        <div>
-          <h1>DeepSeek</h1>
-          <p id="statusText">未连接</p>
-        </div>
-        <button id="settingsButton" class="icon-button" type="button" aria-label="设置" title="设置">
-          <span aria-hidden="true">⚙</span>
-        </button>
-      </header>
-
       <section id="settingsPanel" class="settings" aria-label="DeepSeek 设置">
         <label class="field">
           <span>API Key</span>
@@ -52,11 +42,18 @@
 
       <form id="chatForm" class="composer">
         <button id="expandComposerButton" class="icon-button composer-toggle" type="button" aria-label="展开输入框" title="展开输入框">
-          <span aria-hidden="true">▲</span>
+          <span aria-hidden="true">^</span>
         </button>
         <textarea id="messageInput" rows="2" placeholder="输入你的问题..." required></textarea>
         <button id="sendButton" type="submit">发送</button>
       </form>
+
+      <div class="statusbar" aria-label="状态栏">
+        <p id="statusText">未连接</p>
+        <button id="settingsButton" class="icon-button" type="button" aria-label="设置" title="设置">
+          <span aria-hidden="true">⚙️</span>
+        </button>
+      </div>
     </main>
 
     <script src="sidebar.js"></script>
