@@ -13,6 +13,7 @@ const API_URL = "https://api.deepseek.com/chat/completions";
 const statusText = document.getElementById("statusText");
 const settingsButton = document.getElementById("settingsButton");
 const settingsPanel = document.getElementById("settingsPanel");
+const closeSettingsButton = document.getElementById("closeSettingsButton");
 const apiKeyInput = document.getElementById("apiKeyInput");
 const modelSelect = document.getElementById("modelSelect");
 const themeSelect = document.getElementById("themeSelect");
@@ -48,6 +49,16 @@ function updateStatus(text) {
 function applyTheme(theme) {
   const nextTheme = ["light", "dark", "system"].includes(theme) ? theme : DEFAULT_THEME;
   document.documentElement.dataset.theme = nextTheme;
+}
+
+function openSettings() {
+  settingsPanel.classList.add("open");
+  apiKeyInput.focus();
+}
+
+function closeSettings() {
+  settingsPanel.classList.remove("open");
+  settingsButton.focus();
 }
 
 function renderMessages() {
@@ -328,7 +339,28 @@ async function callDeepSeek() {
 }
 
 settingsButton.addEventListener("click", () => {
-  settingsPanel.classList.toggle("open");
+  if (settingsPanel.classList.contains("open")) {
+    closeSettings();
+    return;
+  }
+
+  openSettings();
+});
+
+closeSettingsButton.addEventListener("click", () => {
+  closeSettings();
+});
+
+settingsPanel.addEventListener("click", (event) => {
+  if (event.target === settingsPanel) {
+    closeSettings();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && settingsPanel.classList.contains("open")) {
+    closeSettings();
+  }
 });
 
 saveSettingsButton.addEventListener("click", async () => {
@@ -346,7 +378,7 @@ saveSettingsButton.addEventListener("click", async () => {
 
   applyTheme(settings.theme);
   updateStatus(settings.apiKey ? `已连接 · ${settings.model}` : "未连接");
-  settingsPanel.classList.remove("open");
+  closeSettings();
 });
 
 clearChatButton.addEventListener("click", async () => {
@@ -377,7 +409,7 @@ chatForm.addEventListener("submit", async (event) => {
   if (!content) return;
 
   if (!settings.apiKey) {
-    settingsPanel.classList.add("open");
+    openSettings();
     appendMessage("system", "请先保存 DeepSeek API Key。");
     return;
   }

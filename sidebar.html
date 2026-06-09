@@ -8,33 +8,41 @@
   </head>
   <body>
     <main class="app">
-      <section id="settingsPanel" class="settings" aria-label="DeepSeek 设置">
-        <label class="field">
-          <span>API Key</span>
-          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
-        </label>
-        <label class="field">
-          <span>模型</span>
-          <select id="modelSelect">
-            <option value="deepseek-v4-flash">deepseek-v4-flash</option>
-            <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>主题</span>
-          <select id="themeSelect">
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>系统提示词</span>
-          <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>
-        </label>
-        <div class="settings-actions">
-          <button id="saveSettingsButton" type="button">保存设置</button>
-          <button id="clearChatButton" type="button" class="secondary">清空会话</button>
+      <section id="settingsPanel" class="settings" aria-label="DeepSeek 设置" aria-modal="true" role="dialog">
+        <div class="settings-dialog">
+          <div class="settings-titlebar">
+            <h2>设置</h2>
+            <button id="closeSettingsButton" class="icon-button" type="button" aria-label="关闭设置" title="关闭设置">
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+          <label class="field">
+            <span>API Key</span>
+            <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
+          </label>
+          <label class="field">
+            <span>模型</span>
+            <select id="modelSelect">
+              <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+              <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>主题</span>
+            <select id="themeSelect">
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>系统提示词</span>
+            <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>
+          </label>
+          <div class="settings-actions">
+            <button id="saveSettingsButton" type="button">保存设置</button>
+            <button id="clearChatButton" type="button" class="secondary">清空会话</button>
+          </div>
         </div>
       </section>
 
