@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Edge Sidebar Chat",
+  "version": "1.0.0",
+  "description": "Use LLM API from the Microsoft Edge sidebar.",
+  "action": {
+    "default_title": "Open Sidebar"
+  },
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "side_panel": {
+    "default_path": "sidebar.html"
+  },
+  "permissions": [
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.deepseek.com/*"
+  ]
+}

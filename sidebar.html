@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="system">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DeepSeek Chat</title>
+    <link rel="stylesheet" href="sidebar.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>DeepSeek</h1>
+          <p id="statusText">未连接</p>
+        </div>
+        <button id="settingsButton" class="icon-button" type="button" aria-label="设置" title="设置">
+          <span aria-hidden="true">⚙</span>
+        </button>
+      </header>
+
+      <section id="settingsPanel" class="settings" aria-label="DeepSeek 设置">
+        <label class="field">
+          <span>API Key</span>
+          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
+        </label>
+        <label class="field">
+          <span>模型</span>
+          <select id="modelSelect">
+            <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+            <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>主题</span>
+          <select id="themeSelect">
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>系统提示词</span>
+          <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>
+        </label>
+        <div class="settings-actions">
+          <button id="saveSettingsButton" type="button">保存设置</button>
+          <button id="clearChatButton" type="button" class="secondary">清空会话</button>
+        </div>
+      </section>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <form id="chatForm" class="composer">
+        <button id="expandComposerButton" class="icon-button composer-toggle" type="button" aria-label="展开输入框" title="展开输入框">
+          <span aria-hidden="true">▲</span>
+        </button>
+        <textarea id="messageInput" rows="2" placeholder="输入你的问题..." required></textarea>
+        <button id="sendButton" type="submit">发送</button>
+      </form>
+    </main>
+
+    <script src="sidebar.js"></script>
+  </body>
+</html>
