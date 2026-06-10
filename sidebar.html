@@ -63,9 +63,7 @@
       <section id="messages" class="messages" aria-live="polite"></section>
 
       <form id="chatForm" class="composer">
-        <button id="expandComposerButton" class="icon-button composer-toggle" type="button" aria-label="展开输入框" title="展开输入框">
-          <span aria-hidden="true">^</span>
-        </button>
+        <div id="composerResizeHandle" class="composer-resize-handle" aria-hidden="true"></div>
         <textarea id="messageInput" rows="2" placeholder="输入你的问题..." required></textarea>
         <button id="sendButton" type="submit">发送</button>
       </form>

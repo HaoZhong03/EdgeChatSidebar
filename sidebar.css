@@ -117,12 +117,8 @@ button {
   height: 100vh;
   height: 100dvh;
   min-height: 100vh;
-  padding-bottom: 102px;
+  padding-bottom: calc(var(--composer-height, 64px) + 38px);
   background: var(--bg);
-}
-
-.app:has(.composer.expanded) {
-  padding-bottom: 214px;
 }
 
 .icon-button {
@@ -527,17 +523,13 @@ button {
   left: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: 36px 1fr 64px;
+  grid-template-columns: 1fr 64px;
   gap: 8px;
   align-items: stretch;
-  height: 64px;
+  height: var(--composer-height, 64px);
   padding: 10px;
   border-top: 1px solid var(--border);
   background: var(--surface);
-}
-
-.composer.expanded {
-  height: 176px;
 }
 
 .composer textarea {
@@ -554,23 +546,30 @@ button {
   line-height: 1.35;
 }
 
-.composer-toggle {
-  width: 36px;
-  height: 100%;
-  min-height: 40px;
-  padding: 0;
-  background: var(--surface-soft);
-  color: var(--text);
-  font-size: 16px;
+.composer-resize-handle {
+  position: absolute;
+  top: -5px;
+  right: 0;
+  left: 0;
+  height: 10px;
+  cursor: ns-resize;
+  touch-action: none;
 }
 
-.composer.expanded .composer-toggle span {
-  transform: rotate(180deg);
+.composer-resize-handle::after {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  content: "";
+  background: transparent;
 }
 
-.composer-toggle span {
-  display: inline-block;
-  transition: transform 160ms ease;
+.composer-resizing,
+.composer-resizing textarea {
+  user-select: none;
+  cursor: ns-resize;
 }
 
 #sendButton {

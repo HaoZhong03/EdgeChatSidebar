@@ -29,9 +29,12 @@ const saveSettingsButton = document.getElementById("saveSettingsButton");
 const clearChatButton = document.getElementById("clearChatButton");
 const messagesEl = document.getElementById("messages");
 const chatForm = document.getElementById("chatForm");
-const expandComposerButton = document.getElementById("expandComposerButton");
+const composerResizeHandle = document.getElementById("composerResizeHandle");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
+
+const COMPOSER_MIN_HEIGHT = 64;
+const COMPOSER_MAX_MARGIN = 120;
 
 let settings = {
   apiKey: "",
@@ -714,12 +717,45 @@ clearChatButton.addEventListener("click", async () => {
   renderMessages();
 });
 
-expandComposerButton.addEventListener("click", () => {
-  const expanded = chatForm.classList.toggle("expanded");
-  const label = expanded ? "收起输入框" : "展开输入框";
+composerResizeHandle.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
 
-  expandComposerButton.setAttribute("aria-label", label);
-  expandComposerButton.setAttribute("title", label);
+  const startY = event.clientY;
+  const startHeight = chatForm.getBoundingClientRect().height;
+
+  composerResizeHandle.setPointerCapture(event.pointerId);
+  document.body.classList.add("composer-resizing");
+  event.preventDefault();
+
+  const resizeComposer = (pointerEvent) => {
+    const maxHeight = Math.max(
+      COMPOSER_MIN_HEIGHT,
+      window.innerHeight - COMPOSER_MAX_MARGIN
+    );
+    const nextHeight = Math.min(
+      maxHeight,
+      Math.max(COMPOSER_MIN_HEIGHT, startHeight + startY - pointerEvent.clientY)
+    );
+
+    document.documentElement.style.setProperty(
+      "--composer-height",
+      `${Math.round(nextHeight)}px`
+    );
+  };
+
+  const stopResizing = (pointerEvent) => {
+    document.body.classList.remove("composer-resizing");
+    if (composerResizeHandle.hasPointerCapture(pointerEvent.pointerId)) {
+      composerResizeHandle.releasePointerCapture(pointerEvent.pointerId);
+    }
+    composerResizeHandle.removeEventListener("pointermove", resizeComposer);
+    composerResizeHandle.removeEventListener("pointerup", stopResizing);
+    composerResizeHandle.removeEventListener("pointercancel", stopResizing);
+  };
+
+  composerResizeHandle.addEventListener("pointermove", resizeComposer);
+  composerResizeHandle.addEventListener("pointerup", stopResizing);
+  composerResizeHandle.addEventListener("pointercancel", stopResizing);
 });
 
 messageInput.addEventListener("keydown", (event) => {
