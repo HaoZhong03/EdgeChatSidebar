@@ -248,14 +248,53 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function renderLatex(value, display = false) {
+  const source = value.trim();
+
+  if (!source) {
+    return "";
+  }
+
+  if (typeof katex !== "undefined" && typeof katex.renderToString === "function") {
+    try {
+      return katex.renderToString(source, {
+        displayMode: display,
+        throwOnError: false,
+        strict: "ignore",
+        trust: false,
+        output: "htmlAndMathml"
+      });
+    } catch (error) {
+      console.warn("KaTeX render failed:", error);
+    }
+  }
+
+  const className = display ? "katex-fallback katex-display" : "katex-fallback";
+  return `<span class="${className}">${escapeHtml(source)}</span>`;
+}
+
 function renderInlineMarkdown(value) {
-  return escapeHtml(value)
+  const tokens = [];
+
+  function addToken(html) {
+    const token = `\u0000${tokens.length}\u0000`;
+    tokens.push(html);
+    return token;
+  }
+
+  const tokenized = value
+    .replace(/`([^`]+)`/g, (_, code) => addToken(`<code>${escapeHtml(code)}</code>`))
+    .replace(/\\\((.+?)\\\)/g, (_, latex) => addToken(renderLatex(latex)))
+    .replace(/(^|[^\w\\])\$([^\s$](?:.*?[^\s$])?)\$(?!\d)/g, (_, prefix, latex) => `${prefix}${addToken(renderLatex(latex))}`);
+
+  return escapeHtml(tokenized)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")
     .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
     .replace(/_([^_\n]+)_/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/\u0000(\d+)\u0000/g, (_, tokenIndex) => tokens[Number(tokenIndex)]);
 }
 
 function renderMarkdown(markdown) {
@@ -331,6 +370,52 @@ function renderMarkdown(markdown) {
       continue;
     }
 
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      closeParagraph();
+      closeList();
+      closeQuote();
+      html.push("<hr>");
+      continue;
+    }
+
+    const displayMathStart = line.match(/^\s*(\$\$|\\\[)(.*)$/);
+    if (displayMathStart) {
+      closeParagraph();
+      closeList();
+      closeQuote();
+
+      const closingToken = displayMathStart[1] === "$$" ? "$$" : "\\]";
+      const mathLines = [];
+      let firstLine = displayMathStart[2];
+      let closingIndex = firstLine.indexOf(closingToken);
+
+      if (closingIndex !== -1) {
+        html.push(renderLatex(firstLine.slice(0, closingIndex), true));
+        continue;
+      }
+
+      if (firstLine.trim()) {
+        mathLines.push(firstLine);
+      }
+
+      index += 1;
+
+      while (index < lines.length) {
+        closingIndex = lines[index].indexOf(closingToken);
+
+        if (closingIndex !== -1) {
+          mathLines.push(lines[index].slice(0, closingIndex));
+          break;
+        }
+
+        mathLines.push(lines[index]);
+        index += 1;
+      }
+
+      html.push(renderLatex(mathLines.join("\n"), true));
+      continue;
+    }
+
     if (line.includes("|") && lines[index + 1] && isTableSeparator(lines[index + 1])) {
       closeParagraph();
       closeList();
@@ -353,12 +438,12 @@ function renderMarkdown(markdown) {
       continue;
     }
 
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
     if (heading) {
       closeParagraph();
       closeList();
       closeQuote();
-      const level = heading[1].length + 2;
+      const level = heading[1].length;
       html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
       continue;
     }

@@ -376,16 +376,29 @@ button {
 .message-content ol,
 .message-content blockquote,
 .message-content pre,
-.message-content table {
+.message-content table,
+.message-content hr,
+.message-content .math-display {
   margin: 0 0 10px;
 }
 
+.message-content h1,
+.message-content h2,
 .message-content h3,
 .message-content h4,
-.message-content h5 {
+.message-content h5,
+.message-content h6 {
   margin: 12px 0 8px;
   color: var(--text-strong);
   line-height: 1.3;
+}
+
+.message-content h1 {
+  font-size: 20px;
+}
+
+.message-content h2 {
+  font-size: 18px;
 }
 
 .message-content h3 {
@@ -393,8 +406,13 @@ button {
 }
 
 .message-content h4,
-.message-content h5 {
+.message-content h5,
+.message-content h6 {
   font-size: 15px;
+}
+
+.message-content h6 {
+  color: var(--text-subtle);
 }
 
 .message-content ul,
@@ -410,6 +428,12 @@ button {
   border-left: 3px solid var(--border-strong);
   padding-left: 10px;
   color: var(--text-subtle);
+}
+
+.message-content hr {
+  height: 1px;
+  border: 0;
+  background: var(--border);
 }
 
 .message-content code {
@@ -436,6 +460,27 @@ button {
   background: transparent;
   color: inherit;
   white-space: pre;
+}
+
+.message-content .katex {
+  font-size: 1.05em;
+}
+
+.message-content .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 10px 0;
+  padding: 2px 0 4px;
+}
+
+.message-content .katex-display > .katex {
+  white-space: nowrap;
+}
+
+.message-content .katex-fallback {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  white-space: pre-wrap;
 }
 
 .message-content a {
