@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Edge Chat Sidebar icon</title>
+  <desc id="desc">A flat chat bubble beside a sidebar rail.</desc>
+  <rect width="128" height="128" rx="26" fill="#2563eb"/>
+  <rect x="92" y="26" width="14" height="76" rx="7" fill="#dbeafe"/>
+  <rect x="25" y="36" width="55" height="43" rx="16" fill="#ffffff"/>
+  <path d="M43 75 30 91V70Z" fill="#ffffff"/>
+  <circle cx="45" cy="58" r="5" fill="#2563eb"/>
+  <path d="M58 58H69" stroke="#2563eb" stroke-width="7" stroke-linecap="round"/>
+</svg>
