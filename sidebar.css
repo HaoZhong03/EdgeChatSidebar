@@ -507,6 +507,41 @@ button {
   font-weight: 700;
 }
 
+.assistant-content {
+  width: 100%;
+}
+
+.reasoning {
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text-subtle);
+}
+
+.reasoning[hidden] {
+  display: none;
+}
+
+.reasoning summary {
+  cursor: pointer;
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.reasoning-content {
+  max-height: 220px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding: 8px 9px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 .message.user .message-content,
 .message.system .message-content {
   white-space: pre-wrap;

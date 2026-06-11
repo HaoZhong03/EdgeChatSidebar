@@ -24,6 +24,8 @@
 - API Key 保存在浏览器本地扩展存储中，不会写入项目文件。
 - DeepSeek Chat Completions API 是无状态接口，所以扩展会把历史消息一起发送，以支持多轮对话。
 - 当前请求地址为 `https://api.deepseek.com/chat/completions`。
+- 已支持 DeepSeek 流式输出和 thinking mode；回答会边生成边显示，思考过程会在回答上方以折叠区展示。
+- 思考过程只用于本地展示和历史记录，不会作为下一轮请求消息发送给 DeepSeek。
 - 当前模型使用 DeepSeek V4：`deepseek-v4-flash` 和 `deepseek-v4-pro`。旧模型名 `deepseek-chat` / `deepseek-reasoner` 将于 2026-07-24 15:59 UTC 弃用。
 
 ## 第三方依赖与许可

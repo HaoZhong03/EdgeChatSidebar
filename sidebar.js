@@ -238,7 +238,9 @@ function renderMessages() {
   }
 
   for (const message of settings.messages) {
-    appendMessage(message.role, message.content);
+    appendMessage(message.role, message.content, {
+      reasoningContent: message.reasoningContent || ""
+    });
   }
 }
 
@@ -500,14 +502,75 @@ function setMessageContent(element, role, content) {
   element.textContent = content;
 }
 
-function appendMessage(role, content) {
+function createAssistantMessageControls(content = "", reasoningContent = "", streaming = false) {
+  const body = document.createElement("div");
+  body.className = "message-content assistant-content";
+
+  const reasoning = document.createElement("details");
+  reasoning.className = "reasoning";
+
+  const summary = document.createElement("summary");
+  summary.textContent = streaming ? "思考中..." : "思考过程";
+
+  const reasoningBody = document.createElement("div");
+  reasoningBody.className = "reasoning-content";
+
+  const answer = document.createElement("div");
+  answer.className = "assistant-answer";
+
+  reasoning.append(summary, reasoningBody);
+  body.append(reasoning, answer);
+
+  function updateReasoning(nextReasoningContent) {
+    reasoningBody.textContent = nextReasoningContent;
+    reasoning.hidden = !nextReasoningContent;
+    reasoning.open = streaming && Boolean(nextReasoningContent);
+  }
+
+  function updateContent(nextContent) {
+    if (nextContent) {
+      answer.innerHTML = renderMarkdown(nextContent);
+      return;
+    }
+
+    answer.textContent = streaming ? "正在思考..." : "";
+  }
+
+  function finish() {
+    summary.textContent = "思考过程";
+    reasoning.open = false;
+  }
+
+  updateReasoning(reasoningContent);
+  updateContent(content);
+
+  if (!streaming) {
+    finish();
+  }
+
+  return {
+    body,
+    updateReasoning,
+    updateContent,
+    finish
+  };
+}
+
+function appendMessage(role, content, options = {}) {
   const wrapper = document.createElement("article");
   wrapper.className = `message ${role}`;
+
+  if (role === "assistant") {
+    const controls = createAssistantMessageControls(content, options.reasoningContent || "", Boolean(options.streaming));
+    wrapper.appendChild(controls.body);
+    messagesEl.appendChild(wrapper);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return controls;
+  }
 
   const body = document.createElement("div");
   body.className = "message-content";
   setMessageContent(body, role, content);
-
   wrapper.appendChild(body);
   messagesEl.appendChild(wrapper);
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -560,7 +623,16 @@ async function loadSettings() {
   renderMessages();
 }
 
-async function callDeepSeek() {
+function parseStreamErrorText(text, status) {
+  try {
+    const payload = JSON.parse(text);
+    return payload.error?.message || payload.message || `请求失败，状态码 ${status}`;
+  } catch {
+    return text || `请求失败，状态码 ${status}`;
+  }
+}
+
+async function callDeepSeekStream(onDelta) {
   const response = await fetch(API_URL, {
     method: "POST",
     headers: {
@@ -570,31 +642,124 @@ async function callDeepSeek() {
     body: JSON.stringify({
       model: settings.model,
       messages: buildApiMessages(),
-      stream: false
+      stream: true,
+      thinking: {
+        type: "enabled"
+      }
     })
   });
 
-  const text = await response.text();
-  let payload;
-
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new Error(text || "DeepSeek 返回了无法解析的响应。");
-  }
-
   if (!response.ok) {
-    const message = payload.error?.message || payload.message || `请求失败，状态码 ${response.status}`;
-    throw new Error(message);
+    throw new Error(parseStreamErrorText(await response.text(), response.status));
   }
 
-  const content = payload.choices?.[0]?.message?.content;
+  if (!response.body) {
+    throw new Error("当前浏览器不支持读取 DeepSeek 流式响应。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  let reasoningContent = "";
+
+  function handleEventData(data) {
+    const value = data.trim();
+
+    if (!value) {
+      return false;
+    }
+
+    if (value === "[DONE]") {
+      return true;
+    }
+
+    let payload;
+
+    try {
+      payload = JSON.parse(value);
+    } catch {
+      throw new Error("DeepSeek 返回了无法解析的流式响应。");
+    }
+
+    const delta = payload.choices?.[0]?.delta || {};
+    const nextReasoning = delta.reasoning_content || "";
+    const nextContent = delta.content || "";
+
+    if (nextReasoning) {
+      reasoningContent += nextReasoning;
+    }
+
+    if (nextContent) {
+      content += nextContent;
+    }
+
+    if (nextReasoning || nextContent) {
+      onDelta({
+        content,
+        reasoningContent
+      });
+    }
+
+    return false;
+  }
+
+  function processBuffer() {
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const dataLines = event
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart());
+
+      if (dataLines.length > 0 && handleEventData(dataLines.join("\n"))) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    if (processBuffer()) {
+      await reader.cancel();
+      break;
+    }
+  }
+
+  buffer += decoder.decode();
+
+  if (buffer.trim()) {
+    const event = buffer;
+    buffer = "";
+    const dataLines = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart());
+
+    if (dataLines.length > 0) {
+      handleEventData(dataLines.join("\n"));
+    }
+  }
 
   if (!content) {
     throw new Error("DeepSeek 没有返回可显示的内容。");
   }
 
-  return content;
+  return {
+    content,
+    reasoningContent
+  };
 }
 
 settingsButton.addEventListener("click", () => {
@@ -782,18 +947,28 @@ chatForm.addEventListener("submit", async (event) => {
   messageInput.value = "";
   await saveMessages();
 
-  const assistantBody = appendMessage("assistant", "正在思考...");
+  const assistantMessage = appendMessage("assistant", "", { streaming: true });
   sendButton.disabled = true;
   updateStatus("请求中...");
 
   try {
-    const reply = await callDeepSeek();
-    setMessageContent(assistantBody, "assistant", reply);
-    settings.messages.push({ role: "assistant", content: reply });
+    const reply = await callDeepSeekStream(({ content: replyContent, reasoningContent }) => {
+      assistantMessage.updateReasoning(reasoningContent);
+      assistantMessage.updateContent(replyContent);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+
+    assistantMessage.finish();
+    assistantMessage.updateContent(reply.content);
+    settings.messages.push({
+      role: "assistant",
+      content: reply.content,
+      reasoningContent: reply.reasoningContent
+    });
     await saveMessages();
     updateStatus(`已连接 · ${settings.model}`);
   } catch (error) {
-    setMessageContent(assistantBody, "system", `请求失败：${error.message}`);
+    setMessageContent(assistantMessage.body, "system", `请求失败：${error.message}`);
     updateStatus("请求失败");
   } finally {
     sendButton.disabled = false;
