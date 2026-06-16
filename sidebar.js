@@ -13,6 +13,7 @@ const DEFAULT_THEME = "system";
 const API_URL = "https://api.deepseek.com/chat/completions";
 
 const statusText = document.getElementById("statusText");
+const tokenUsageText = document.getElementById("tokenUsageText");
 const settingsButton = document.getElementById("settingsButton");
 const settingsPanel = document.getElementById("settingsPanel");
 const closeSettingsButton = document.getElementById("closeSettingsButton");
@@ -56,6 +57,50 @@ function storageSet(value) {
 
 function updateStatus(text) {
   statusText.textContent = text;
+}
+
+function formatTokenCount(value) {
+  return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+function normalizeUsage(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const promptTokens = Number(value.prompt_tokens ?? value.promptTokens);
+  const completionTokens = Number(value.completion_tokens ?? value.completionTokens);
+  const totalTokens = Number(value.total_tokens ?? value.totalTokens);
+
+  return {
+    promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
+    completionTokens: Number.isFinite(completionTokens) ? completionTokens : null,
+    totalTokens: Number.isFinite(totalTokens) ? totalTokens : null
+  };
+}
+
+function getLatestTokenUsage(messages = settings.messages) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = normalizeUsage(messages[index]?.usage);
+    if (usage) {
+      return usage;
+    }
+  }
+
+  return null;
+}
+
+function updateTokenUsageDisplay(usage = getLatestTokenUsage()) {
+  const contextTokens = usage?.promptTokens ?? usage?.totalTokens;
+
+  if (!Number.isFinite(contextTokens)) {
+    tokenUsageText.hidden = true;
+    tokenUsageText.textContent = "";
+    return;
+  }
+
+  tokenUsageText.hidden = false;
+  tokenUsageText.textContent = `${formatTokenCount(contextTokens)} tokens`;
 }
 
 function applyTheme(theme) {
@@ -502,6 +547,15 @@ function setMessageContent(element, role, content) {
   element.textContent = content;
 }
 
+function isMessagesNearBottom() {
+  const distanceFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+  return distanceFromBottom <= 24;
+}
+
+function scrollMessagesToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 function createAssistantMessageControls(content = "", reasoningContent = "", streaming = false) {
   const body = document.createElement("div");
   body.className = "message-content assistant-content";
@@ -524,7 +578,6 @@ function createAssistantMessageControls(content = "", reasoningContent = "", str
   function updateReasoning(nextReasoningContent) {
     reasoningBody.textContent = nextReasoningContent;
     reasoning.hidden = !nextReasoningContent;
-    reasoning.open = streaming && Boolean(nextReasoningContent);
   }
 
   function updateContent(nextContent) {
@@ -538,7 +591,6 @@ function createAssistantMessageControls(content = "", reasoningContent = "", str
 
   function finish() {
     summary.textContent = "思考过程";
-    reasoning.open = false;
   }
 
   updateReasoning(reasoningContent);
@@ -564,7 +616,7 @@ function appendMessage(role, content, options = {}) {
     const controls = createAssistantMessageControls(content, options.reasoningContent || "", Boolean(options.streaming));
     wrapper.appendChild(controls.body);
     messagesEl.appendChild(wrapper);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    scrollMessagesToBottom();
     return controls;
   }
 
@@ -573,7 +625,7 @@ function appendMessage(role, content, options = {}) {
   setMessageContent(body, role, content);
   wrapper.appendChild(body);
   messagesEl.appendChild(wrapper);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  scrollMessagesToBottom();
   return body;
 }
 
@@ -619,6 +671,7 @@ async function loadSettings() {
   systemPromptInput.value = settings.systemPrompt;
   applyTheme(settings.theme);
   updateStatus(settings.apiKey ? `已连接 · ${settings.model}` : "未连接");
+  updateTokenUsageDisplay();
   await saveSessions();
   renderMessages();
 }
@@ -643,6 +696,9 @@ async function callDeepSeekStream(onDelta) {
       model: settings.model,
       messages: buildApiMessages(),
       stream: true,
+      stream_options: {
+        include_usage: true
+      },
       thinking: {
         type: "enabled"
       }
@@ -662,6 +718,7 @@ async function callDeepSeekStream(onDelta) {
   let buffer = "";
   let content = "";
   let reasoningContent = "";
+  let usage = null;
 
   function handleEventData(data) {
     const value = data.trim();
@@ -680,6 +737,10 @@ async function callDeepSeekStream(onDelta) {
       payload = JSON.parse(value);
     } catch {
       throw new Error("DeepSeek 返回了无法解析的流式响应。");
+    }
+
+    if (payload.usage) {
+      usage = normalizeUsage(payload.usage);
     }
 
     const delta = payload.choices?.[0]?.delta || {};
@@ -758,7 +819,8 @@ async function callDeepSeekStream(onDelta) {
 
   return {
     content,
-    reasoningContent
+    reasoningContent,
+    usage
   };
 }
 
@@ -817,6 +879,7 @@ newChatButton.addEventListener("click", async () => {
   settings.messages = session.messages;
   await saveSessions();
   renderMessages();
+  updateTokenUsageDisplay();
   renderHistory();
   closeHistory();
   messageInput.focus();
@@ -834,6 +897,7 @@ historyList.addEventListener("click", async (event) => {
     settings.messages = session.messages;
     await saveSessions();
     renderMessages();
+    updateTokenUsageDisplay();
     closeHistory();
     messageInput.focus();
     return;
@@ -855,6 +919,7 @@ historyList.addEventListener("click", async (event) => {
   syncCurrentSessionMessages();
   await saveSessions();
   renderMessages();
+  updateTokenUsageDisplay();
   renderHistory();
 });
 
@@ -873,6 +938,7 @@ saveSettingsButton.addEventListener("click", async () => {
 
   applyTheme(settings.theme);
   updateStatus(settings.apiKey ? `已连接 · ${settings.model}` : "未连接");
+  updateTokenUsageDisplay();
   closeSettings();
 });
 
@@ -880,6 +946,7 @@ clearChatButton.addEventListener("click", async () => {
   settings.messages = [];
   await saveMessages();
   renderMessages();
+  updateTokenUsageDisplay();
 });
 
 composerResizeHandle.addEventListener("pointerdown", (event) => {
@@ -953,20 +1020,30 @@ chatForm.addEventListener("submit", async (event) => {
 
   try {
     const reply = await callDeepSeekStream(({ content: replyContent, reasoningContent }) => {
+      const shouldFollowOutput = isMessagesNearBottom();
       assistantMessage.updateReasoning(reasoningContent);
       assistantMessage.updateContent(replyContent);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+
+      if (shouldFollowOutput) {
+        scrollMessagesToBottom();
+      }
     });
 
+    const shouldFollowOutput = isMessagesNearBottom();
     assistantMessage.finish();
     assistantMessage.updateContent(reply.content);
+    if (shouldFollowOutput) {
+      scrollMessagesToBottom();
+    }
     settings.messages.push({
       role: "assistant",
       content: reply.content,
-      reasoningContent: reply.reasoningContent
+      reasoningContent: reply.reasoningContent,
+      usage: reply.usage
     });
     await saveMessages();
     updateStatus(`已连接 · ${settings.model}`);
+    updateTokenUsageDisplay(reply.usage);
   } catch (error) {
     setMessageContent(assistantMessage.body, "system", `请求失败：${error.message}`);
     updateStatus("请求失败");

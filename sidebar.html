@@ -69,7 +69,10 @@
       </form>
 
       <div class="statusbar" aria-label="状态栏">
-        <p id="statusText">未连接</p>
+        <div class="status-info">
+          <p id="statusText">未连接</p>
+          <span id="tokenUsageText" class="token-usage" hidden></span>
+        </div>
         <div class="status-actions">
           <button id="historyButton" class="icon-button" type="button" aria-label="历史对话" title="历史对话">
             <span aria-hidden="true">📄</span>
