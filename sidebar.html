@@ -29,6 +29,14 @@
             <span>系统提示词</span>
             <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>
           </label>
+          <label class="field">
+            <span>小米 MiMo 联网搜索</span>
+            <select id="mimoWebSearchModeSelect">
+              <option value="off">关闭</option>
+              <option value="auto">自动判断</option>
+              <option value="force">强制搜索</option>
+            </select>
+          </label>
           <details id="apiSettingsDetails" class="api-settings">
             <summary>高级模型 API</summary>
             <div class="api-provider">
@@ -56,7 +64,7 @@
           </details>
           <div class="settings-actions">
             <button id="saveSettingsButton" type="button">保存设置</button>
-            <button id="clearChatButton" type="button" class="secondary">清空会话</button>
+            <button id="clearChatButton" type="button" class="secondary">重置设置</button>
           </div>
         </div>
       </section>
@@ -78,7 +86,10 @@
 
       <form id="chatForm" class="composer">
         <div id="composerResizeHandle" class="composer-resize-handle" aria-hidden="true"></div>
-        <textarea id="messageInput" rows="2" placeholder="输入你的问题..." required></textarea>
+        <div class="composer-input">
+          <div id="pendingImages" class="pending-images" aria-label="待发送图片" hidden></div>
+          <textarea id="messageInput" rows="2" placeholder="输入你的问题..."></textarea>
+        </div>
         <button id="sendButton" type="submit">发送</button>
       </form>
 

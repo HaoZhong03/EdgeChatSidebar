@@ -26,7 +26,8 @@
   },
   "permissions": [
     "sidePanel",
-    "storage"
+    "storage",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "https://api.deepseek.com/*",

@@ -1,6 +1,7 @@
 const STORAGE_KEYS = {
   activeProvider: "activeModelProvider",
   providerConfigs: "modelProviderConfigs",
+  mimoWebSearchMode: "mimoWebSearchMode",
   theme: "deepseekTheme",
   systemPrompt: "deepseekSystemPrompt",
   messages: "deepseekMessages",
@@ -58,26 +59,38 @@ const mimoApiKeyInput = document.getElementById("mimoApiKeyInput");
 const mimoEndpointInput = document.getElementById("mimoEndpointInput");
 const themeSelect = document.getElementById("themeSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
+const mimoWebSearchModeSelect = document.getElementById("mimoWebSearchModeSelect");
 const saveSettingsButton = document.getElementById("saveSettingsButton");
 const clearChatButton = document.getElementById("clearChatButton");
 const messagesEl = document.getElementById("messages");
 const chatForm = document.getElementById("chatForm");
 const composerResizeHandle = document.getElementById("composerResizeHandle");
+const pendingImagesEl = document.getElementById("pendingImages");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 
 const COMPOSER_MIN_HEIGHT = 64;
+const COMPOSER_IMAGE_MIN_HEIGHT = 124;
 const COMPOSER_MAX_MARGIN = 120;
+const DEFAULT_MIMO_WEB_SEARCH_MODE = "off";
+const MIMO_WEB_SEARCH_MODES = ["off", "auto", "force"];
+const MIMO_MULTIMODAL_MODEL = "mimo-v2.5";
+const DEFAULT_IMAGE_PROMPT = "请分析这张图片。";
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGES_PER_MESSAGE = 4;
 
 let settings = {
   activeProvider: DEFAULT_PROVIDER_ID,
   providerConfigs: createDefaultProviderConfigs(),
+  mimoWebSearchMode: DEFAULT_MIMO_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
   systemPrompt: "",
   messages: [],
   sessions: [],
   currentSessionId: ""
 };
+let pendingImages = [];
 
 function storageGet(keys) {
   if (!globalThis.chrome?.storage?.local) {
@@ -162,6 +175,10 @@ function getActiveProvider() {
 function getActiveProviderConfig() {
   const provider = getActiveProvider();
   return settings.providerConfigs[provider.id] || createDefaultProviderConfigs()[provider.id];
+}
+
+function normalizeMimoWebSearchMode(value) {
+  return MIMO_WEB_SEARCH_MODES.includes(value) ? value : DEFAULT_MIMO_WEB_SEARCH_MODE;
 }
 
 function updateModelSwitchLabel(status = "") {
@@ -286,6 +303,66 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = nextTheme;
 }
 
+function getMessageText(message) {
+  return typeof message?.content === "string" ? message.content : "";
+}
+
+function normalizeImageAttachments(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((image) => (
+      image
+      && typeof image.dataUrl === "string"
+      && image.dataUrl.startsWith("data:image/")
+      && typeof image.mimeType === "string"
+      && SUPPORTED_IMAGE_MIME_TYPES.has(image.mimeType)
+    ))
+    .slice(0, MAX_IMAGES_PER_MESSAGE)
+    .map((image, index) => ({
+      id: typeof image.id === "string" && image.id ? image.id : `image-${Date.now()}-${index}`,
+      name: typeof image.name === "string" ? image.name : "clipboard-image",
+      mimeType: image.mimeType,
+      size: Number.isFinite(image.size) ? image.size : 0,
+      dataUrl: image.dataUrl
+    }));
+}
+
+function normalizeMessage(message) {
+  if (!message || typeof message !== "object") {
+    return { role: "user", content: "" };
+  }
+
+  return {
+    ...message,
+    role: typeof message.role === "string" ? message.role : "user",
+    content: typeof message.content === "string" ? message.content : "",
+    images: normalizeImageAttachments(message.images)
+  };
+}
+
+function isMimoMultimodalConfig(provider, config) {
+  return provider.id === "mimo" && config.model === MIMO_MULTIMODAL_MODEL;
+}
+
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "未知大小";
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${Math.ceil(bytes / 1024)} KB`;
+  }
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function getComposerMinHeight() {
+  return pendingImages.length > 0 ? COMPOSER_IMAGE_MIN_HEIGHT : COMPOSER_MIN_HEIGHT;
+}
+
 function createSession(messages = []) {
   const now = Date.now();
 
@@ -299,8 +376,12 @@ function createSession(messages = []) {
 }
 
 function buildSessionTitle(messages) {
-  const firstUserMessage = messages.find((message) => message.role === "user" && message.content.trim());
-  const title = firstUserMessage?.content.trim() || "新对话";
+  const firstUserMessage = messages.find((message) => (
+    message.role === "user"
+    && (getMessageText(message).trim() || normalizeImageAttachments(message.images).length > 0)
+  ));
+  const title = getMessageText(firstUserMessage).trim()
+    || (firstUserMessage ? "图片消息" : "新对话");
 
   return title.length > 24 ? `${title.slice(0, 24)}...` : title;
 }
@@ -312,7 +393,7 @@ function normalizeSessions(value, legacyMessages) {
         .map((session) => ({
           id: session.id,
           title: session.title || buildSessionTitle(Array.isArray(session.messages) ? session.messages : []),
-          messages: Array.isArray(session.messages) ? session.messages : [],
+          messages: Array.isArray(session.messages) ? session.messages.map(normalizeMessage) : [],
           createdAt: Number.isFinite(session.createdAt) ? session.createdAt : Date.now(),
           updatedAt: Number.isFinite(session.updatedAt) ? session.updatedAt : Date.now()
         }))
@@ -323,7 +404,7 @@ function normalizeSessions(value, legacyMessages) {
   }
 
   if (Array.isArray(legacyMessages) && legacyMessages.length > 0) {
-    return [createSession(legacyMessages)];
+    return [createSession(legacyMessages.map(normalizeMessage))];
   }
 
   return [createSession()];
@@ -415,9 +496,17 @@ function renderHistory() {
     deleteButton.dataset.sessionId = session.id;
     deleteButton.setAttribute("aria-label", `删除 ${session.title || "新对话"}`);
     deleteButton.setAttribute("title", "删除");
-    deleteButton.textContent = "×";
+    deleteButton.textContent = "x";
 
-    item.append(selectButton, deleteButton);
+    const compressButton = document.createElement("button");
+    compressButton.className = "history-compress";
+    compressButton.type = "button";
+    compressButton.dataset.sessionId = session.id;
+    compressButton.setAttribute("aria-label", `压缩 ${session.title || "新对话"} 的上下文`);
+    compressButton.setAttribute("title", "压缩上下文");
+    compressButton.textContent = "压缩";
+
+    item.append(selectButton, compressButton, deleteButton);
     historyList.appendChild(item);
   }
 }
@@ -464,6 +553,7 @@ function renderMessages() {
 
   for (const message of settings.messages) {
     appendMessage(message.role, message.content, {
+      images: message.images,
       reasoningContent: message.reasoningContent || ""
     });
   }
@@ -718,13 +808,38 @@ function renderMarkdown(markdown) {
   return html.join("");
 }
 
-function setMessageContent(element, role, content) {
+function renderMessageImages(images) {
+  const normalizedImages = normalizeImageAttachments(images);
+  if (normalizedImages.length === 0) {
+    return null;
+  }
+
+  const list = document.createElement("div");
+  list.className = "message-images";
+
+  for (const image of normalizedImages) {
+    const img = document.createElement("img");
+    img.className = "message-image";
+    img.src = image.dataUrl;
+    img.alt = image.name || "用户粘贴的图片";
+    img.loading = "lazy";
+    list.appendChild(img);
+  }
+
+  return list;
+}
+
+function setMessageContent(element, role, content, options = {}) {
   if (role === "assistant") {
     element.innerHTML = renderMarkdown(content);
     return;
   }
 
   element.textContent = content;
+  const images = renderMessageImages(options.images);
+  if (images) {
+    element.appendChild(images);
+  }
 }
 
 function isMessagesNearBottom() {
@@ -802,24 +917,54 @@ function appendMessage(role, content, options = {}) {
 
   const body = document.createElement("div");
   body.className = "message-content";
-  setMessageContent(body, role, content);
+  setMessageContent(body, role, content, options);
   wrapper.appendChild(body);
   messagesEl.appendChild(wrapper);
   scrollMessagesToBottom();
   return body;
 }
 
-function buildApiMessages() {
-  const messages = settings.messages.map(({ role, content }) => ({ role, content }));
+function buildApiMessage(message, provider, config) {
+  const content = getMessageText(message);
+  const images = normalizeImageAttachments(message.images);
 
-  if (settings.systemPrompt.trim()) {
+  if (message.role === "user" && images.length > 0 && isMimoMultimodalConfig(provider, config)) {
+    return {
+      role: message.role,
+      content: [
+        { type: "text", text: content.trim() || DEFAULT_IMAGE_PROMPT },
+        ...images.map((image) => ({
+          type: "image_url",
+          image_url: {
+            url: image.dataUrl
+          }
+        }))
+      ]
+    };
+  }
+
+  return {
+    role: message.role,
+    content
+  };
+}
+
+function buildApiMessages(
+  messages = settings.messages,
+  includeSystemPrompt = true,
+  provider = getActiveProvider(),
+  config = getActiveProviderConfig()
+) {
+  const apiMessages = messages.map((message) => buildApiMessage(message, provider, config));
+
+  if (includeSystemPrompt && settings.systemPrompt.trim()) {
     return [
       { role: "system", content: settings.systemPrompt.trim() },
-      ...messages
+      ...apiMessages
     ];
   }
 
-  return messages;
+  return apiMessages;
 }
 
 async function saveMessages() {
@@ -844,6 +989,7 @@ async function loadSettings() {
   settings = {
     activeProvider,
     providerConfigs,
+    mimoWebSearchMode: normalizeMimoWebSearchMode(data[STORAGE_KEYS.mimoWebSearchMode]),
     theme: data[STORAGE_KEYS.theme] || DEFAULT_THEME,
     systemPrompt: data[STORAGE_KEYS.systemPrompt] || "",
     messages: [],
@@ -859,6 +1005,7 @@ async function loadSettings() {
   mimoEndpointInput.value = settings.providerConfigs.mimo.apiUrl;
   themeSelect.value = settings.theme;
   systemPromptInput.value = settings.systemPrompt;
+  mimoWebSearchModeSelect.value = settings.mimoWebSearchMode;
   applyTheme(settings.theme);
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
@@ -866,7 +1013,8 @@ async function loadSettings() {
     saveSessions(),
     storageSet({
       [STORAGE_KEYS.activeProvider]: settings.activeProvider,
-      [STORAGE_KEYS.providerConfigs]: settings.providerConfigs
+      [STORAGE_KEYS.providerConfigs]: settings.providerConfigs,
+      [STORAGE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode
     })
   ]);
   renderMessages();
@@ -881,14 +1029,20 @@ function parseStreamErrorText(text, status) {
   }
 }
 
-function buildProviderRequestBody(provider, config) {
+function buildProviderRequestBody(provider, config, options = {}) {
+  const stream = options.stream !== false;
   const body = {
     model: config.model,
-    messages: buildApiMessages(),
-    stream: true
+    messages: buildApiMessages(
+      options.messages || settings.messages,
+      options.includeSystemPrompt !== false,
+      provider,
+      config
+    ),
+    stream
   };
 
-  if (provider.includeStreamUsage) {
+  if (stream && provider.includeStreamUsage) {
     body.stream_options = {
       include_usage: true
     };
@@ -900,15 +1054,34 @@ function buildProviderRequestBody(provider, config) {
     };
   }
 
+  if (options.maxTokens) {
+    body.max_tokens = options.maxTokens;
+  }
+
+  if (provider.id === "mimo" && options.includeWebSearch !== false && settings.mimoWebSearchMode !== "off") {
+    body.tools = [
+      {
+        type: "web_search",
+        max_keyword: 3,
+        force_search: settings.mimoWebSearchMode === "force",
+        limit: 1
+      }
+    ];
+  }
+
   return body;
+}
+
+function buildAuthHeaders(provider, config) {
+  return provider.authHeader === "api-key"
+    ? { "api-key": config.apiKey }
+    : { "Authorization": `Bearer ${config.apiKey}` };
 }
 
 async function callModelStream(onDelta) {
   const provider = getActiveProvider();
   const config = getActiveProviderConfig();
-  const authHeaders = provider.authHeader === "api-key"
-    ? { "api-key": config.apiKey }
-    : { "Authorization": `Bearer ${config.apiKey}` };
+  const authHeaders = buildAuthHeaders(provider, config);
   const response = await fetch(config.apiUrl, {
     method: "POST",
     headers: {
@@ -1037,6 +1210,221 @@ async function callModelStream(onDelta) {
   };
 }
 
+async function callModelOnce(messages, options = {}) {
+  const provider = getActiveProvider();
+  const config = getActiveProviderConfig();
+  const authHeaders = buildAuthHeaders(provider, config);
+  const response = await fetch(config.apiUrl, {
+    method: "POST",
+    headers: {
+      ...authHeaders,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(buildProviderRequestBody(provider, config, {
+      messages,
+      stream: false,
+      includeSystemPrompt: false,
+      includeWebSearch: false,
+      maxTokens: options.maxTokens
+    }))
+  });
+
+  if (!response.ok) {
+    throw new Error(parseStreamErrorText(await response.text(), response.status));
+  }
+
+  const payload = await response.json();
+  const content = payload.choices?.[0]?.message?.content?.trim()
+    || payload.choices?.[0]?.text?.trim()
+    || "";
+
+  if (!content) {
+    throw new Error(provider.emptyResponseMessage);
+  }
+
+  return {
+    content,
+    usage: normalizeUsage(payload.usage)
+  };
+}
+
+function serializeMessagesForSummary(messages) {
+  return messages
+    .map((message, index) => {
+      const roleLabel = {
+        system: "系统",
+        user: "用户",
+        assistant: "助手"
+      }[message.role] || message.role;
+
+      const imageCount = normalizeImageAttachments(message.images).length;
+      const imageNote = imageCount > 0 ? `（包含 ${imageCount} 张图片）` : "";
+      return `${index + 1}. ${roleLabel}：${message.content || ""}${imageNote}`;
+    })
+    .join("\n\n");
+}
+
+async function summarizeSessionMessages(session) {
+  const summaryPrompt = [
+    "你负责压缩一段历史对话上下文。",
+    "请保留用户目标、关键事实、约束、已做决定、未解决问题。",
+    "删除寒暄、重复内容、格式噪声。",
+    "输出中文，控制在 800 字以内。"
+  ].join("\n");
+  const transcript = serializeMessagesForSummary(session.messages);
+  const reply = await callModelOnce([
+    { role: "system", content: summaryPrompt },
+    { role: "user", content: `请压缩以下对话：\n\n${transcript}` }
+  ], {
+    maxTokens: 1000
+  });
+
+  return reply.content;
+}
+
+async function compressSessionContext(sessionId, button) {
+  const session = settings.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+
+  if (session.messages.length < 10) {
+    appendMessage("system", "当前对话内容较少，无需压缩");
+    return;
+  }
+
+  const provider = getActiveProvider();
+  const providerConfig = getActiveProviderConfig();
+  if (!providerConfig.apiKey) {
+    openSettings();
+    appendMessage("system", `请先配置当前模型 ${provider.label} API Key。`);
+    return;
+  }
+
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "压缩中";
+
+  try {
+    const summary = await summarizeSessionMessages(session);
+    const recentMessages = session.messages.slice(-8);
+    session.messages = [
+      {
+        role: "system",
+        content: `以下为已压缩的历史上下文摘要：\n${summary.trim()}`
+      },
+      ...recentMessages
+    ];
+    session.title = buildSessionTitle(session.messages);
+    session.updatedAt = Date.now();
+
+    if (session.id === settings.currentSessionId) {
+      settings.messages = session.messages;
+    }
+
+    await saveSessions();
+
+    if (session.id === settings.currentSessionId) {
+      renderMessages();
+      updateTokenUsageDisplay();
+    }
+
+    renderHistory();
+    appendMessage("system", "上下文压缩完成");
+  } catch (error) {
+    appendMessage("system", `上下文压缩失败：${error.message}`);
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+function renderPendingImages() {
+  pendingImagesEl.innerHTML = "";
+  pendingImagesEl.hidden = pendingImages.length === 0;
+
+  if (pendingImages.length > 0) {
+    const currentHeight = chatForm.getBoundingClientRect().height;
+    if (currentHeight < COMPOSER_IMAGE_MIN_HEIGHT) {
+      document.documentElement.style.setProperty("--composer-height", `${COMPOSER_IMAGE_MIN_HEIGHT}px`);
+    }
+  } else if (document.documentElement.style.getPropertyValue("--composer-height") === `${COMPOSER_IMAGE_MIN_HEIGHT}px`) {
+    document.documentElement.style.setProperty("--composer-height", `${COMPOSER_MIN_HEIGHT}px`);
+  }
+
+  for (const image of pendingImages) {
+    const item = document.createElement("div");
+    item.className = "pending-image";
+
+    const img = document.createElement("img");
+    img.src = image.dataUrl;
+    img.alt = image.name || "待发送图片";
+    img.title = `${image.name || "待发送图片"} · ${formatFileSize(image.size)}`;
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "pending-image-remove";
+    removeButton.dataset.imageId = image.id;
+    removeButton.setAttribute("aria-label", "移除图片");
+    removeButton.setAttribute("title", "移除图片");
+    removeButton.textContent = "×";
+
+    item.append(img, removeButton);
+    pendingImagesEl.appendChild(item);
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", () => reject(reader.error || new Error("图片读取失败")));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addClipboardImages(files) {
+  const acceptedFiles = [];
+
+  for (const file of files) {
+    if (!SUPPORTED_IMAGE_MIME_TYPES.has(file.type)) {
+      appendMessage("system", "仅支持粘贴 PNG、JPEG 或 WebP 图片。");
+      continue;
+    }
+
+    if (file.size > MAX_IMAGE_BYTES) {
+      appendMessage("system", `图片 ${file.name || "clipboard-image"} 超过 5MB，已跳过。`);
+      continue;
+    }
+
+    if (pendingImages.length + acceptedFiles.length >= MAX_IMAGES_PER_MESSAGE) {
+      appendMessage("system", `每条消息最多粘贴 ${MAX_IMAGES_PER_MESSAGE} 张图片。`);
+      break;
+    }
+
+    acceptedFiles.push(file);
+  }
+
+  if (acceptedFiles.length === 0) {
+    return;
+  }
+
+  try {
+    const nextImages = await Promise.all(acceptedFiles.map(async (file, index) => ({
+      id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${index}`,
+      name: file.name || "clipboard-image",
+      mimeType: file.type,
+      size: file.size,
+      dataUrl: await readFileAsDataUrl(file)
+    })));
+
+    pendingImages = normalizeImageAttachments([...pendingImages, ...nextImages]);
+    renderPendingImages();
+  } catch (error) {
+    appendMessage("system", `读取粘贴图片失败：${error.message}`);
+  }
+}
+
 settingsButton.addEventListener("click", () => {
   if (settingsPanel.classList.contains("open")) {
     closeSettings();
@@ -1151,6 +1539,7 @@ newChatButton.addEventListener("click", async () => {
 
 historyList.addEventListener("click", async (event) => {
   const selectButton = event.target.closest(".history-select");
+  const compressButton = event.target.closest(".history-compress");
   const deleteButton = event.target.closest(".history-delete");
 
   if (selectButton) {
@@ -1164,6 +1553,11 @@ historyList.addEventListener("click", async (event) => {
     updateTokenUsageDisplay();
     closeHistory();
     messageInput.focus();
+    return;
+  }
+
+  if (compressButton) {
+    await compressSessionContext(compressButton.dataset.sessionId, compressButton);
     return;
   }
 
@@ -1202,11 +1596,13 @@ saveSettingsButton.addEventListener("click", async () => {
   });
   settings.theme = themeSelect.value;
   settings.systemPrompt = systemPromptInput.value.trim();
+  settings.mimoWebSearchMode = normalizeMimoWebSearchMode(mimoWebSearchModeSelect.value);
 
   await storageSet({
     [STORAGE_KEYS.providerConfigs]: settings.providerConfigs,
     [STORAGE_KEYS.theme]: settings.theme,
-    [STORAGE_KEYS.systemPrompt]: settings.systemPrompt
+    [STORAGE_KEYS.systemPrompt]: settings.systemPrompt,
+    [STORAGE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode
   });
 
   applyTheme(settings.theme);
@@ -1216,10 +1612,35 @@ saveSettingsButton.addEventListener("click", async () => {
 });
 
 clearChatButton.addEventListener("click", async () => {
-  settings.messages = [];
-  await saveMessages();
-  renderMessages();
+  const confirmed = window.confirm("确定要重置设置吗？API Key、Endpoint、主题、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
+  if (!confirmed) return;
+
+  settings.activeProvider = DEFAULT_PROVIDER_ID;
+  settings.providerConfigs = createDefaultProviderConfigs();
+  settings.theme = DEFAULT_THEME;
+  settings.systemPrompt = "";
+  settings.mimoWebSearchMode = DEFAULT_MIMO_WEB_SEARCH_MODE;
+
+  deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
+  deepseekEndpointInput.value = settings.providerConfigs.deepseek.apiUrl;
+  mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
+  mimoEndpointInput.value = settings.providerConfigs.mimo.apiUrl;
+  themeSelect.value = settings.theme;
+  systemPromptInput.value = settings.systemPrompt;
+  mimoWebSearchModeSelect.value = settings.mimoWebSearchMode;
+
+  await storageSet({
+    [STORAGE_KEYS.activeProvider]: settings.activeProvider,
+    [STORAGE_KEYS.providerConfigs]: settings.providerConfigs,
+    [STORAGE_KEYS.theme]: settings.theme,
+    [STORAGE_KEYS.systemPrompt]: settings.systemPrompt,
+    [STORAGE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode
+  });
+
+  applyTheme(settings.theme);
+  updateModelSwitchLabel();
   updateTokenUsageDisplay();
+  renderModelMenu();
 });
 
 composerResizeHandle.addEventListener("pointerdown", (event) => {
@@ -1233,13 +1654,14 @@ composerResizeHandle.addEventListener("pointerdown", (event) => {
   event.preventDefault();
 
   const resizeComposer = (pointerEvent) => {
+    const minHeight = getComposerMinHeight();
     const maxHeight = Math.max(
-      COMPOSER_MIN_HEIGHT,
+      minHeight,
       window.innerHeight - COMPOSER_MAX_MARGIN
     );
     const nextHeight = Math.min(
       maxHeight,
-      Math.max(COMPOSER_MIN_HEIGHT, startHeight + startY - pointerEvent.clientY)
+      Math.max(minHeight, startHeight + startY - pointerEvent.clientY)
     );
 
     document.documentElement.style.setProperty(
@@ -1270,14 +1692,44 @@ messageInput.addEventListener("keydown", (event) => {
   }
 });
 
+messageInput.addEventListener("paste", async (event) => {
+  const items = Array.from(event.clipboardData?.items || []);
+  const imageFiles = items
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter(Boolean);
+
+  if (imageFiles.length === 0) {
+    return;
+  }
+
+  event.preventDefault();
+  await addClipboardImages(imageFiles);
+});
+
+pendingImagesEl.addEventListener("click", (event) => {
+  const removeButton = event.target.closest(".pending-image-remove");
+  if (!removeButton) return;
+
+  pendingImages = pendingImages.filter((image) => image.id !== removeButton.dataset.imageId);
+  renderPendingImages();
+  messageInput.focus();
+});
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const content = messageInput.value.trim();
-  if (!content) return;
+  let content = messageInput.value.trim();
+  const images = normalizeImageAttachments(pendingImages);
+  if (!content && images.length === 0) return;
 
   const provider = getActiveProvider();
   const providerConfig = getActiveProviderConfig();
+
+  if (images.length > 0 && !isMimoMultimodalConfig(provider, providerConfig)) {
+    appendMessage("system", `粘贴图片仅支持小米 MiMo 的 ${MIMO_MULTIMODAL_MODEL} 模型，请切换模型后再发送。`);
+    return;
+  }
 
   if (!providerConfig.apiKey) {
     openSettings();
@@ -1285,9 +1737,16 @@ chatForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  settings.messages.push({ role: "user", content });
-  appendMessage("user", content);
+  if (!content && images.length > 0) {
+    content = DEFAULT_IMAGE_PROMPT;
+  }
+
+  const userMessage = { role: "user", content, images };
+  settings.messages.push(userMessage);
+  appendMessage("user", content, { images });
   messageInput.value = "";
+  pendingImages = [];
+  renderPendingImages();
   await saveMessages();
 
   const assistantMessage = appendMessage("assistant", "", { streaming: true });
