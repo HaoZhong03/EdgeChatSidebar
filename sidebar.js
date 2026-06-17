@@ -1,18 +1,48 @@
 const STORAGE_KEYS = {
-  apiKey: "deepseekApiKey",
-  model: "deepseekModel",
+  activeProvider: "activeModelProvider",
+  providerConfigs: "modelProviderConfigs",
   theme: "deepseekTheme",
   systemPrompt: "deepseekSystemPrompt",
   messages: "deepseekMessages",
   sessions: "deepseekSessions",
-  currentSessionId: "deepseekCurrentSessionId"
+  currentSessionId: "deepseekCurrentSessionId",
+  legacyApiKey: "deepseekApiKey",
+  legacyModel: "deepseekModel"
 };
 
-const DEFAULT_MODEL = "deepseek-v4-flash";
-const DEFAULT_THEME = "system";
-const API_URL = "https://api.deepseek.com/chat/completions";
+const MODEL_PROVIDERS = {
+  deepseek: {
+    id: "deepseek",
+    label: "DeepSeek",
+    apiUrl: "https://api.deepseek.com/chat/completions",
+    defaultModel: "deepseek-v4-flash",
+    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+    supportsThinking: true,
+    includeStreamUsage: true,
+    streamUnsupportedMessage: "当前浏览器不支持读取 DeepSeek 流式响应。",
+    parseErrorMessage: "DeepSeek 返回了无法解析的流式响应。",
+    emptyResponseMessage: "DeepSeek 没有返回可显示的内容。"
+  },
+  mimo: {
+    id: "mimo",
+    label: "小米 MiMo",
+    apiUrl: "https://api.xiaomimimo.com/v1/chat/completions",
+    defaultModel: "mimo-v2.5",
+    models: ["mimo-v2.5", "mimo-v2.5-pro"],
+    supportsThinking: false,
+    includeStreamUsage: false,
+    authHeader: "api-key",
+    streamUnsupportedMessage: "当前浏览器不支持读取小米 MiMo 流式响应。",
+    parseErrorMessage: "小米 MiMo 返回了无法解析的流式响应。",
+    emptyResponseMessage: "小米 MiMo 没有返回可显示的内容。"
+  }
+};
 
-const statusText = document.getElementById("statusText");
+const DEFAULT_PROVIDER_ID = "deepseek";
+const DEFAULT_THEME = "system";
+
+const modelSwitchButton = document.getElementById("modelSwitchButton");
+const modelMenu = document.getElementById("modelMenu");
 const tokenUsageText = document.getElementById("tokenUsageText");
 const settingsButton = document.getElementById("settingsButton");
 const settingsPanel = document.getElementById("settingsPanel");
@@ -22,8 +52,10 @@ const historyPanel = document.getElementById("historyPanel");
 const closeHistoryButton = document.getElementById("closeHistoryButton");
 const newChatButton = document.getElementById("newChatButton");
 const historyList = document.getElementById("historyList");
-const apiKeyInput = document.getElementById("apiKeyInput");
-const modelSelect = document.getElementById("modelSelect");
+const deepseekApiKeyInput = document.getElementById("deepseekApiKeyInput");
+const deepseekEndpointInput = document.getElementById("deepseekEndpointInput");
+const mimoApiKeyInput = document.getElementById("mimoApiKeyInput");
+const mimoEndpointInput = document.getElementById("mimoEndpointInput");
 const themeSelect = document.getElementById("themeSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
 const saveSettingsButton = document.getElementById("saveSettingsButton");
@@ -38,8 +70,8 @@ const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_MAX_MARGIN = 120;
 
 let settings = {
-  apiKey: "",
-  model: DEFAULT_MODEL,
+  activeProvider: DEFAULT_PROVIDER_ID,
+  providerConfigs: createDefaultProviderConfigs(),
   theme: DEFAULT_THEME,
   systemPrompt: "",
   messages: [],
@@ -48,15 +80,161 @@ let settings = {
 };
 
 function storageGet(keys) {
+  if (!globalThis.chrome?.storage?.local) {
+    const result = {};
+    for (const key of keys) {
+      const rawValue = localStorage.getItem(key);
+      if (rawValue === null) continue;
+
+      try {
+        result[key] = JSON.parse(rawValue);
+      } catch {
+        result[key] = rawValue;
+      }
+    }
+    return Promise.resolve(result);
+  }
+
   return chrome.storage.local.get(keys);
 }
 
 function storageSet(value) {
+  if (!globalThis.chrome?.storage?.local) {
+    for (const [key, nextValue] of Object.entries(value)) {
+      localStorage.setItem(key, JSON.stringify(nextValue));
+    }
+    return Promise.resolve();
+  }
+
   return chrome.storage.local.set(value);
 }
 
-function updateStatus(text) {
-  statusText.textContent = text;
+function createDefaultProviderConfigs() {
+  return Object.fromEntries(
+    Object.values(MODEL_PROVIDERS).map((provider) => [
+      provider.id,
+      {
+        apiKey: "",
+        apiUrl: provider.apiUrl,
+        model: provider.defaultModel
+      }
+    ])
+  );
+}
+
+function normalizeProviderConfigs(value, legacyApiKey = "", legacyModel = "") {
+  const defaults = createDefaultProviderConfigs();
+  const source = value && typeof value === "object" ? value : {};
+
+  for (const provider of Object.values(MODEL_PROVIDERS)) {
+    const config = source[provider.id] && typeof source[provider.id] === "object" ? source[provider.id] : {};
+    defaults[provider.id] = {
+      apiKey: typeof config.apiKey === "string" ? config.apiKey : defaults[provider.id].apiKey,
+      apiUrl: typeof config.apiUrl === "string" && config.apiUrl.trim()
+        ? config.apiUrl.trim()
+        : defaults[provider.id].apiUrl,
+      model: typeof config.model === "string" && config.model.trim()
+        ? config.model.trim()
+        : defaults[provider.id].model
+    };
+  }
+
+  if (!source.deepseek && legacyApiKey) {
+    defaults.deepseek.apiKey = legacyApiKey;
+    defaults.deepseek.model = legacyModel || defaults.deepseek.model;
+  }
+
+  if (defaults.mimo.apiUrl === "https://api.mimo.xiaomi.com/v1/chat/completions") {
+    defaults.mimo.apiUrl = MODEL_PROVIDERS.mimo.apiUrl;
+  }
+
+  if (!MODEL_PROVIDERS.mimo.models.includes(defaults.mimo.model)) {
+    defaults.mimo.model = MODEL_PROVIDERS.mimo.defaultModel;
+  }
+
+  return defaults;
+}
+
+function getActiveProvider() {
+  return MODEL_PROVIDERS[settings.activeProvider] || MODEL_PROVIDERS[DEFAULT_PROVIDER_ID];
+}
+
+function getActiveProviderConfig() {
+  const provider = getActiveProvider();
+  return settings.providerConfigs[provider.id] || createDefaultProviderConfigs()[provider.id];
+}
+
+function updateModelSwitchLabel(status = "") {
+  const provider = getActiveProvider();
+  const config = getActiveProviderConfig();
+  const connection = config.apiKey ? "已连接" : "未配置";
+  const prefix = status || connection;
+  modelSwitchButton.textContent = `${prefix} · ${config.model}`;
+  modelSwitchButton.title = `当前模型：${provider.label} / ${config.model}。点击展开模型列表。`;
+  modelSwitchButton.setAttribute("aria-label", `切换模型，当前为 ${provider.label} ${config.model}`);
+  renderModelMenu();
+}
+
+function renderModelMenu() {
+  modelMenu.innerHTML = "";
+
+  for (const provider of Object.values(MODEL_PROVIDERS)) {
+    const group = document.createElement("div");
+    group.className = "model-menu-group";
+
+    const label = document.createElement("div");
+    label.className = "model-menu-label";
+    label.textContent = provider.label;
+    group.appendChild(label);
+
+    const config = settings.providerConfigs[provider.id] || createDefaultProviderConfigs()[provider.id];
+
+    for (const model of provider.models) {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "model-menu-option";
+      option.dataset.providerId = provider.id;
+      option.dataset.model = model;
+
+      if (settings.activeProvider === provider.id && config.model === model) {
+        option.classList.add("selected");
+        option.setAttribute("aria-current", "true");
+      }
+
+      const modelText = document.createElement("span");
+      modelText.className = "model-menu-model";
+      modelText.textContent = model;
+
+      const providerText = document.createElement("span");
+      providerText.className = "model-menu-provider";
+      providerText.textContent = provider.label;
+
+      option.append(modelText, providerText);
+      group.appendChild(option);
+    }
+
+    modelMenu.appendChild(group);
+  }
+}
+
+function openModelMenu() {
+  renderModelMenu();
+  modelMenu.hidden = false;
+  modelSwitchButton.setAttribute("aria-expanded", "true");
+}
+
+function closeModelMenu() {
+  modelMenu.hidden = true;
+  modelSwitchButton.setAttribute("aria-expanded", "false");
+}
+
+function toggleModelMenu() {
+  if (modelMenu.hidden) {
+    openModelMenu();
+    return;
+  }
+
+  closeModelMenu();
 }
 
 function formatTokenCount(value) {
@@ -246,8 +424,9 @@ function renderHistory() {
 
 function openSettings() {
   closeHistory(false);
+  closeModelMenu();
   settingsPanel.classList.add("open");
-  apiKeyInput.focus();
+  themeSelect.focus();
 }
 
 function closeSettings(restoreFocus = true) {
@@ -259,6 +438,7 @@ function closeSettings(restoreFocus = true) {
 
 function openHistory() {
   closeSettings(false);
+  closeModelMenu();
   renderHistory();
   historyPanel.classList.add("open");
   newChatButton.focus();
@@ -277,7 +457,7 @@ function renderMessages() {
   if (settings.messages.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "先在设置里保存 DeepSeek API Key，然后开始对话。";
+    empty.textContent = "先在设置的高级模型 API 中保存当前模型的 API Key，然后开始对话。";
     messagesEl.appendChild(empty);
     return;
   }
@@ -652,10 +832,18 @@ async function loadSettings() {
   const currentSessionId = sessions.some((session) => session.id === data[STORAGE_KEYS.currentSessionId])
     ? data[STORAGE_KEYS.currentSessionId]
     : sessions[0].id;
+  const activeProvider = MODEL_PROVIDERS[data[STORAGE_KEYS.activeProvider]]
+    ? data[STORAGE_KEYS.activeProvider]
+    : DEFAULT_PROVIDER_ID;
+  const providerConfigs = normalizeProviderConfigs(
+    data[STORAGE_KEYS.providerConfigs],
+    data[STORAGE_KEYS.legacyApiKey] || "",
+    data[STORAGE_KEYS.legacyModel] || ""
+  );
 
   settings = {
-    apiKey: data[STORAGE_KEYS.apiKey] || "",
-    model: data[STORAGE_KEYS.model] || DEFAULT_MODEL,
+    activeProvider,
+    providerConfigs,
     theme: data[STORAGE_KEYS.theme] || DEFAULT_THEME,
     systemPrompt: data[STORAGE_KEYS.systemPrompt] || "",
     messages: [],
@@ -665,14 +853,22 @@ async function loadSettings() {
 
   syncCurrentSessionMessages();
 
-  apiKeyInput.value = settings.apiKey;
-  modelSelect.value = settings.model;
+  deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
+  deepseekEndpointInput.value = settings.providerConfigs.deepseek.apiUrl;
+  mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
+  mimoEndpointInput.value = settings.providerConfigs.mimo.apiUrl;
   themeSelect.value = settings.theme;
   systemPromptInput.value = settings.systemPrompt;
   applyTheme(settings.theme);
-  updateStatus(settings.apiKey ? `已连接 · ${settings.model}` : "未连接");
+  updateModelSwitchLabel();
   updateTokenUsageDisplay();
-  await saveSessions();
+  await Promise.all([
+    saveSessions(),
+    storageSet({
+      [STORAGE_KEYS.activeProvider]: settings.activeProvider,
+      [STORAGE_KEYS.providerConfigs]: settings.providerConfigs
+    })
+  ]);
   renderMessages();
 }
 
@@ -685,24 +881,41 @@ function parseStreamErrorText(text, status) {
   }
 }
 
-async function callDeepSeekStream(onDelta) {
-  const response = await fetch(API_URL, {
+function buildProviderRequestBody(provider, config) {
+  const body = {
+    model: config.model,
+    messages: buildApiMessages(),
+    stream: true
+  };
+
+  if (provider.includeStreamUsage) {
+    body.stream_options = {
+      include_usage: true
+    };
+  }
+
+  if (provider.supportsThinking) {
+    body.thinking = {
+      type: "enabled"
+    };
+  }
+
+  return body;
+}
+
+async function callModelStream(onDelta) {
+  const provider = getActiveProvider();
+  const config = getActiveProviderConfig();
+  const authHeaders = provider.authHeader === "api-key"
+    ? { "api-key": config.apiKey }
+    : { "Authorization": `Bearer ${config.apiKey}` };
+  const response = await fetch(config.apiUrl, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${settings.apiKey}`,
+      ...authHeaders,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      model: settings.model,
-      messages: buildApiMessages(),
-      stream: true,
-      stream_options: {
-        include_usage: true
-      },
-      thinking: {
-        type: "enabled"
-      }
-    })
+    body: JSON.stringify(buildProviderRequestBody(provider, config))
   });
 
   if (!response.ok) {
@@ -710,7 +923,7 @@ async function callDeepSeekStream(onDelta) {
   }
 
   if (!response.body) {
-    throw new Error("当前浏览器不支持读取 DeepSeek 流式响应。");
+    throw new Error(provider.streamUnsupportedMessage);
   }
 
   const reader = response.body.getReader();
@@ -736,7 +949,7 @@ async function callDeepSeekStream(onDelta) {
     try {
       payload = JSON.parse(value);
     } catch {
-      throw new Error("DeepSeek 返回了无法解析的流式响应。");
+      throw new Error(provider.parseErrorMessage);
     }
 
     if (payload.usage) {
@@ -814,7 +1027,7 @@ async function callDeepSeekStream(onDelta) {
   }
 
   if (!content) {
-    throw new Error("DeepSeek 没有返回可显示的内容。");
+    throw new Error(provider.emptyResponseMessage);
   }
 
   return {
@@ -831,6 +1044,52 @@ settingsButton.addEventListener("click", () => {
   }
 
   openSettings();
+});
+
+modelSwitchButton.addEventListener("click", () => {
+  toggleModelMenu();
+});
+
+modelMenu.addEventListener("click", async (event) => {
+  const option = event.target.closest(".model-menu-option");
+  if (!option) return;
+
+  const providerId = option.dataset.providerId;
+  const model = option.dataset.model;
+
+  if (!MODEL_PROVIDERS[providerId] || !MODEL_PROVIDERS[providerId].models.includes(model)) {
+    return;
+  }
+
+  settings.activeProvider = providerId;
+  settings.providerConfigs = normalizeProviderConfigs({
+    ...settings.providerConfigs,
+    [providerId]: {
+      ...getActiveProviderConfig(),
+      model
+    }
+  });
+
+  await storageSet({
+    [STORAGE_KEYS.activeProvider]: settings.activeProvider,
+    [STORAGE_KEYS.providerConfigs]: settings.providerConfigs
+  });
+
+  updateModelSwitchLabel();
+  closeModelMenu();
+  messageInput.focus();
+});
+
+document.addEventListener("click", (event) => {
+  if (
+    modelMenu.hidden ||
+    modelMenu.contains(event.target) ||
+    modelSwitchButton.contains(event.target)
+  ) {
+    return;
+  }
+
+  closeModelMenu();
 });
 
 historyButton.addEventListener("click", () => {
@@ -863,6 +1122,11 @@ historyPanel.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !modelMenu.hidden) {
+    closeModelMenu();
+    modelSwitchButton.focus();
+  }
+
   if (event.key === "Escape" && settingsPanel.classList.contains("open")) {
     closeSettings();
   }
@@ -924,20 +1188,29 @@ historyList.addEventListener("click", async (event) => {
 });
 
 saveSettingsButton.addEventListener("click", async () => {
-  settings.apiKey = apiKeyInput.value.trim();
-  settings.model = modelSelect.value;
+  settings.providerConfigs = normalizeProviderConfigs({
+    deepseek: {
+      apiKey: deepseekApiKeyInput.value.trim(),
+      apiUrl: deepseekEndpointInput.value.trim(),
+      model: settings.providerConfigs.deepseek.model
+    },
+    mimo: {
+      apiKey: mimoApiKeyInput.value.trim(),
+      apiUrl: mimoEndpointInput.value.trim(),
+      model: settings.providerConfigs.mimo.model
+    }
+  });
   settings.theme = themeSelect.value;
   settings.systemPrompt = systemPromptInput.value.trim();
 
   await storageSet({
-    [STORAGE_KEYS.apiKey]: settings.apiKey,
-    [STORAGE_KEYS.model]: settings.model,
+    [STORAGE_KEYS.providerConfigs]: settings.providerConfigs,
     [STORAGE_KEYS.theme]: settings.theme,
     [STORAGE_KEYS.systemPrompt]: settings.systemPrompt
   });
 
   applyTheme(settings.theme);
-  updateStatus(settings.apiKey ? `已连接 · ${settings.model}` : "未连接");
+  updateModelSwitchLabel();
   updateTokenUsageDisplay();
   closeSettings();
 });
@@ -1003,9 +1276,12 @@ chatForm.addEventListener("submit", async (event) => {
   const content = messageInput.value.trim();
   if (!content) return;
 
-  if (!settings.apiKey) {
+  const provider = getActiveProvider();
+  const providerConfig = getActiveProviderConfig();
+
+  if (!providerConfig.apiKey) {
     openSettings();
-    appendMessage("system", "请先保存 DeepSeek API Key。");
+    appendMessage("system", `请先在高级模型 API 中保存 ${provider.label} API Key。`);
     return;
   }
 
@@ -1016,10 +1292,12 @@ chatForm.addEventListener("submit", async (event) => {
 
   const assistantMessage = appendMessage("assistant", "", { streaming: true });
   sendButton.disabled = true;
-  updateStatus("请求中...");
+  closeModelMenu();
+  modelSwitchButton.disabled = true;
+  updateModelSwitchLabel("请求中");
 
   try {
-    const reply = await callDeepSeekStream(({ content: replyContent, reasoningContent }) => {
+    const reply = await callModelStream(({ content: replyContent, reasoningContent }) => {
       const shouldFollowOutput = isMessagesNearBottom();
       assistantMessage.updateReasoning(reasoningContent);
       assistantMessage.updateContent(replyContent);
@@ -1042,18 +1320,19 @@ chatForm.addEventListener("submit", async (event) => {
       usage: reply.usage
     });
     await saveMessages();
-    updateStatus(`已连接 · ${settings.model}`);
+    updateModelSwitchLabel();
     updateTokenUsageDisplay(reply.usage);
   } catch (error) {
     setMessageContent(assistantMessage.body, "system", `请求失败：${error.message}`);
-    updateStatus("请求失败");
+    updateModelSwitchLabel("请求失败");
   } finally {
     sendButton.disabled = false;
+    modelSwitchButton.disabled = false;
     messageInput.focus();
   }
 });
 
 loadSettings().catch((error) => {
-  updateStatus("初始化失败");
+  updateModelSwitchLabel("初始化失败");
   appendMessage("system", error.message);
 });

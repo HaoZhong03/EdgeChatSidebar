@@ -29,6 +29,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://api.deepseek.com/*"
+    "https://api.deepseek.com/*",
+    "https://api.xiaomimimo.com/*",
+    "https://api.mimo.xiaomi.com/*"
   ]
 }

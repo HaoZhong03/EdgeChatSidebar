@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DeepSeek Chat</title>
+    <title>Edge Chat Sidebar</title>
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="sidebar.css">
   </head>
   <body>
     <main class="app">
-      <section id="settingsPanel" class="settings" aria-label="DeepSeek 设置" aria-modal="true" role="dialog">
+      <section id="settingsPanel" class="settings" aria-label="模型设置" aria-modal="true" role="dialog">
         <div class="settings-dialog">
           <div class="settings-titlebar">
             <h2>设置</h2>
@@ -17,17 +17,6 @@
               <span aria-hidden="true">×</span>
             </button>
           </div>
-          <label class="field">
-            <span>API Key</span>
-            <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
-          </label>
-          <label class="field">
-            <span>模型</span>
-            <select id="modelSelect">
-              <option value="deepseek-v4-flash">deepseek-v4-flash</option>
-              <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-            </select>
-          </label>
           <label class="field">
             <span>主题</span>
             <select id="themeSelect">
@@ -40,6 +29,31 @@
             <span>系统提示词</span>
             <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>
           </label>
+          <details id="apiSettingsDetails" class="api-settings">
+            <summary>高级模型 API</summary>
+            <div class="api-provider">
+              <h3>DeepSeek</h3>
+              <label class="field">
+                <span>API Key</span>
+                <input id="deepseekApiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
+              </label>
+              <label class="field">
+                <span>Endpoint</span>
+                <input id="deepseekEndpointInput" type="url" autocomplete="off">
+              </label>
+            </div>
+            <div class="api-provider">
+              <h3>小米 MiMo</h3>
+              <label class="field">
+                <span>API Key</span>
+                <input id="mimoApiKeyInput" type="password" autocomplete="off" placeholder="Bearer token">
+              </label>
+              <label class="field">
+                <span>Endpoint</span>
+                <input id="mimoEndpointInput" type="url" autocomplete="off">
+              </label>
+            </div>
+          </details>
           <div class="settings-actions">
             <button id="saveSettingsButton" type="button">保存设置</button>
             <button id="clearChatButton" type="button" class="secondary">清空会话</button>
@@ -70,7 +84,8 @@
 
       <div class="statusbar" aria-label="状态栏">
         <div class="status-info">
-          <p id="statusText">未连接</p>
+          <button id="modelSwitchButton" class="model-switch" type="button" aria-label="切换模型" aria-expanded="false" aria-controls="modelMenu">DeepSeek</button>
+          <div id="modelMenu" class="model-menu" hidden></div>
           <span id="tokenUsageText" class="token-usage" hidden></span>
         </div>
         <div class="status-actions">
