@@ -53,6 +53,9 @@ const historyPanel = document.getElementById("historyPanel");
 const closeHistoryButton = document.getElementById("closeHistoryButton");
 const newChatButton = document.getElementById("newChatButton");
 const historyList = document.getElementById("historyList");
+const historyNotice = document.getElementById("historyNotice");
+const historyNoticeText = document.getElementById("historyNoticeText");
+const closeHistoryNoticeButton = document.getElementById("closeHistoryNoticeButton");
 const deepseekApiKeyInput = document.getElementById("deepseekApiKeyInput");
 const deepseekEndpointInput = document.getElementById("deepseekEndpointInput");
 const mimoApiKeyInput = document.getElementById("mimoApiKeyInput");
@@ -496,7 +499,10 @@ function renderHistory() {
     deleteButton.dataset.sessionId = session.id;
     deleteButton.setAttribute("aria-label", `删除 ${session.title || "新对话"}`);
     deleteButton.setAttribute("title", "删除");
-    deleteButton.textContent = "x";
+    const deleteIcon = document.createElement("span");
+    deleteIcon.className = "history-delete-icon";
+    deleteIcon.setAttribute("aria-hidden", "true");
+    deleteButton.appendChild(deleteIcon);
 
     const compressButton = document.createElement("button");
     compressButton.className = "history-compress";
@@ -504,11 +510,25 @@ function renderHistory() {
     compressButton.dataset.sessionId = session.id;
     compressButton.setAttribute("aria-label", `压缩 ${session.title || "新对话"} 的上下文`);
     compressButton.setAttribute("title", "压缩上下文");
-    compressButton.textContent = "压缩";
+    const compressIcon = document.createElement("span");
+    compressIcon.className = "history-compress-icon";
+    compressIcon.setAttribute("aria-hidden", "true");
+    compressButton.appendChild(compressIcon);
 
     item.append(selectButton, compressButton, deleteButton);
     historyList.appendChild(item);
   }
+}
+
+function showHistoryNotice(message) {
+  historyNoticeText.textContent = message;
+  historyNotice.hidden = false;
+  closeHistoryNoticeButton.focus();
+}
+
+function closeHistoryNotice() {
+  historyNotice.hidden = true;
+  historyNoticeText.textContent = "";
 }
 
 function openSettings() {
@@ -528,12 +548,14 @@ function closeSettings(restoreFocus = true) {
 function openHistory() {
   closeSettings(false);
   closeModelMenu();
+  closeHistoryNotice();
   renderHistory();
   historyPanel.classList.add("open");
   newChatButton.focus();
 }
 
 function closeHistory(restoreFocus = true) {
+  closeHistoryNotice();
   historyPanel.classList.remove("open");
   if (restoreFocus) {
     historyButton.focus();
@@ -593,124 +615,114 @@ function renderLatex(value, display = false) {
   return `<span class="${className}">${escapeHtml(source)}</span>`;
 }
 
-function renderInlineMarkdown(value) {
-  const tokens = [];
-
-  function addToken(html) {
-    const token = `\u0000${tokens.length}\u0000`;
-    tokens.push(html);
-    return token;
+function isEscapedAt(value, index) {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) {
+    slashCount += 1;
   }
-
-  const tokenized = value
-    .replace(/`([^`]+)`/g, (_, code) => addToken(`<code>${escapeHtml(code)}</code>`))
-    .replace(/\\\((.+?)\\\)/g, (_, latex) => addToken(renderLatex(latex)))
-    .replace(/(^|[^\w\\])\$([^\s$](?:.*?[^\s$])?)\$(?!\d)/g, (_, prefix, latex) => `${prefix}${addToken(renderLatex(latex))}`);
-
-  return escapeHtml(tokenized)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
-    .replace(/_([^_\n]+)_/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-    .replace(/\u0000(\d+)\u0000/g, (_, tokenIndex) => tokens[Number(tokenIndex)]);
+  return slashCount % 2 === 1;
 }
 
-function renderMarkdown(markdown) {
+function replaceInlineMath(line, addMathToken) {
+  let result = "";
+  let index = 0;
+
+  while (index < line.length) {
+    if (line[index] === "`") {
+      const marker = line.slice(index).match(/^`+/)?.[0] || "`";
+      const closingIndex = line.indexOf(marker, index + marker.length);
+      if (closingIndex === -1) {
+        result += line.slice(index);
+        break;
+      }
+
+      result += line.slice(index, closingIndex + marker.length);
+      index = closingIndex + marker.length;
+      continue;
+    }
+
+    if (line.startsWith("\\(", index) && !isEscapedAt(line, index)) {
+      const closingIndex = line.indexOf("\\)", index + 2);
+      if (closingIndex !== -1) {
+        result += addMathToken(line.slice(index + 2, closingIndex), false);
+        index = closingIndex + 2;
+        continue;
+      }
+    }
+
+    if (line[index] === "$" && line[index + 1] !== "$" && !isEscapedAt(line, index)) {
+      let closingIndex = index + 1;
+      while (closingIndex < line.length) {
+        if (line[closingIndex] === "$" && !isEscapedAt(line, closingIndex)) {
+          break;
+        }
+        closingIndex += 1;
+      }
+
+      if (closingIndex < line.length) {
+        const source = line.slice(index + 1, closingIndex);
+        if (source.trim() && !/^\s|\s$/.test(source) && !/\d/.test(line[closingIndex + 1] || "")) {
+          result += addMathToken(source, false);
+          index = closingIndex + 1;
+          continue;
+        }
+      }
+    }
+
+    result += line[index];
+    index += 1;
+  }
+
+  return result;
+}
+
+function extractLatex(markdown) {
+  const tokens = [];
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  const html = [];
-  let paragraph = [];
-  let listType = null;
-  let inCodeBlock = false;
-  let codeLanguage = "";
-  let codeLines = [];
-  let quoteLines = [];
+  const output = [];
+  let inCodeFence = false;
+  let codeFenceMarker = "";
 
-  function closeParagraph() {
-    if (paragraph.length === 0) return;
-    html.push(`<p>${paragraph.map(renderInlineMarkdown).join("<br>")}</p>`);
-    paragraph = [];
-  }
-
-  function closeList() {
-    if (!listType) return;
-    html.push(`</${listType}>`);
-    listType = null;
-  }
-
-  function closeQuote() {
-    if (quoteLines.length === 0) return;
-    html.push(`<blockquote>${quoteLines.map(renderInlineMarkdown).join("<br>")}</blockquote>`);
-    quoteLines = [];
-  }
-
-  function splitTableRow(line) {
-    return line
-      .trim()
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split("|")
-      .map((cell) => cell.trim());
-  }
-
-  function isTableSeparator(line) {
-    return splitTableRow(line).every((cell) => /^:?-{3,}:?$/.test(cell));
+  function addMathToken(source, display) {
+    const placeholder = `@@EDGE_CHAT_MATH_${tokens.length}@@`;
+    tokens.push({
+      placeholder,
+      html: renderLatex(source, display)
+    });
+    return display ? `<div>${placeholder}</div>` : placeholder;
   }
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const codeFence = line.match(/^```(\S*)\s*$/);
+    const fence = line.match(/^(\s*)(`{3,}|~{3,})/);
 
-    if (codeFence) {
-      if (inCodeBlock) {
-        html.push(`<pre><code class="${codeLanguage ? `language-${escapeHtml(codeLanguage)}` : ""}">${escapeHtml(codeLines.join("\n"))}</code></pre>`);
-        inCodeBlock = false;
-        codeLanguage = "";
-        codeLines = [];
-      } else {
-        closeParagraph();
-        closeList();
-        closeQuote();
-        inCodeBlock = true;
-        codeLanguage = codeFence[1] || "";
+    if (fence) {
+      if (!inCodeFence) {
+        inCodeFence = true;
+        codeFenceMarker = fence[2][0];
+      } else if (fence[2][0] === codeFenceMarker) {
+        inCodeFence = false;
+        codeFenceMarker = "";
       }
+
+      output.push(line);
       continue;
     }
 
-    if (inCodeBlock) {
-      codeLines.push(line);
-      continue;
-    }
-
-    if (!line.trim()) {
-      closeParagraph();
-      closeList();
-      closeQuote();
-      continue;
-    }
-
-    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      closeParagraph();
-      closeList();
-      closeQuote();
-      html.push("<hr>");
+    if (inCodeFence) {
+      output.push(line);
       continue;
     }
 
     const displayMathStart = line.match(/^\s*(\$\$|\\\[)(.*)$/);
     if (displayMathStart) {
-      closeParagraph();
-      closeList();
-      closeQuote();
-
       const closingToken = displayMathStart[1] === "$$" ? "$$" : "\\]";
       const mathLines = [];
       let firstLine = displayMathStart[2];
       let closingIndex = firstLine.indexOf(closingToken);
 
       if (closingIndex !== -1) {
-        html.push(renderLatex(firstLine.slice(0, closingIndex), true));
+        output.push(addMathToken(firstLine.slice(0, closingIndex), true));
         continue;
       }
 
@@ -732,80 +744,67 @@ function renderMarkdown(markdown) {
         index += 1;
       }
 
-      html.push(renderLatex(mathLines.join("\n"), true));
+      output.push(addMathToken(mathLines.join("\n"), true));
       continue;
     }
 
-    if (line.includes("|") && lines[index + 1] && isTableSeparator(lines[index + 1])) {
-      closeParagraph();
-      closeList();
-      closeQuote();
-
-      const headers = splitTableRow(line);
-      const rows = [];
-      index += 2;
-
-      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
-        rows.push(splitTableRow(lines[index]));
-        index += 1;
-      }
-      index -= 1;
-
-      html.push("<table>");
-      html.push(`<thead><tr>${headers.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead>`);
-      html.push(`<tbody>${rows.map((row) => `<tr>${headers.map((_, cellIndex) => `<td>${renderInlineMarkdown(row[cellIndex] || "")}</td>`).join("")}</tr>`).join("")}</tbody>`);
-      html.push("</table>");
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
-    if (heading) {
-      closeParagraph();
-      closeList();
-      closeQuote();
-      const level = heading[1].length;
-      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
-      continue;
-    }
-
-    const quote = line.match(/^>\s?(.*)$/);
-    if (quote) {
-      closeParagraph();
-      closeList();
-      quoteLines.push(quote[1]);
-      continue;
-    }
-
-    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
-    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
-
-    if (unordered || ordered) {
-      closeParagraph();
-      closeQuote();
-      const nextType = unordered ? "ul" : "ol";
-      if (listType !== nextType) {
-        closeList();
-        html.push(`<${nextType}>`);
-        listType = nextType;
-      }
-      html.push(`<li>${renderInlineMarkdown((unordered || ordered)[1])}</li>`);
-      continue;
-    }
-
-    closeList();
-    closeQuote();
-    paragraph.push(line);
+    output.push(replaceInlineMath(line, addMathToken));
   }
 
-  if (inCodeBlock) {
-    html.push(`<pre><code class="${codeLanguage ? `language-${escapeHtml(codeLanguage)}` : ""}">${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+  return {
+    markdown: output.join("\n"),
+    tokens
+  };
+}
+
+function restoreLatexTokens(html, tokens) {
+  return tokens.reduce(
+    (nextHtml, token) => nextHtml.replaceAll(token.placeholder, token.html),
+    html
+  );
+}
+
+function sanitizeMarkdownHtml(html) {
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ["target", "rel"],
+    FORBID_TAGS: ["script", "style", "iframe", "object", "embed"]
+  });
+}
+
+function decorateRenderedLinks(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+
+  for (const link of template.content.querySelectorAll("a[href]")) {
+    link.target = "_blank";
+    link.rel = "noreferrer";
   }
 
-  closeParagraph();
-  closeList();
-  closeQuote();
+  return template.innerHTML;
+}
 
-  return html.join("");
+function renderMarkdown(markdown) {
+  const source = typeof markdown === "string" ? markdown : "";
+  const { markdown: markdownWithMathTokens, tokens } = extractLatex(source);
+
+  if (
+    typeof marked === "undefined" ||
+    typeof marked.parse !== "function" ||
+    typeof DOMPurify === "undefined" ||
+    typeof DOMPurify.sanitize !== "function"
+  ) {
+    const escaped = escapeHtml(markdownWithMathTokens).replace(/\n/g, "<br>");
+    return restoreLatexTokens(escaped, tokens);
+  }
+
+  const rawHtml = marked.parse(markdownWithMathTokens, {
+    async: false,
+    breaks: false,
+    gfm: true
+  });
+  const htmlWithLatex = restoreLatexTokens(rawHtml, tokens);
+  const sanitizedHtml = sanitizeMarkdownHtml(htmlWithLatex);
+  return decorateRenderedLinks(sanitizedHtml);
 }
 
 function renderMessageImages(images) {
@@ -1287,7 +1286,7 @@ async function compressSessionContext(sessionId, button) {
   if (!session) return;
 
   if (session.messages.length < 10) {
-    appendMessage("system", "当前对话内容较少，无需压缩");
+    showHistoryNotice("当前对话内容较少，无需压缩");
     return;
   }
 
@@ -1299,9 +1298,12 @@ async function compressSessionContext(sessionId, button) {
     return;
   }
 
-  const originalText = button.textContent;
+  const originalAriaLabel = button.getAttribute("aria-label");
+  const originalTitle = button.getAttribute("title");
   button.disabled = true;
-  button.textContent = "压缩中";
+  button.classList.add("loading");
+  button.setAttribute("aria-label", `正在压缩 ${session.title || "新对话"} 的上下文`);
+  button.setAttribute("title", "压缩中");
 
   try {
     const summary = await summarizeSessionMessages(session);
@@ -1334,7 +1336,13 @@ async function compressSessionContext(sessionId, button) {
   } finally {
     if (button.isConnected) {
       button.disabled = false;
-      button.textContent = originalText;
+      button.classList.remove("loading");
+      if (originalAriaLabel) {
+        button.setAttribute("aria-label", originalAriaLabel);
+      }
+      if (originalTitle) {
+        button.setAttribute("title", originalTitle);
+      }
     }
   }
 }
@@ -1497,6 +1505,16 @@ closeHistoryButton.addEventListener("click", () => {
   closeHistory();
 });
 
+closeHistoryNoticeButton.addEventListener("click", () => {
+  closeHistoryNotice();
+});
+
+historyNotice.addEventListener("click", (event) => {
+  if (event.target === historyNotice) {
+    closeHistoryNotice();
+  }
+});
+
 settingsPanel.addEventListener("click", (event) => {
   if (event.target === settingsPanel) {
     closeSettings();
@@ -1513,6 +1531,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !modelMenu.hidden) {
     closeModelMenu();
     modelSwitchButton.focus();
+  }
+
+  if (event.key === "Escape" && !historyNotice.hidden) {
+    closeHistoryNotice();
+    return;
   }
 
   if (event.key === "Escape" && settingsPanel.classList.contains("open")) {

@@ -38,6 +38,10 @@
 ## 第三方依赖与许可
 
 - 本项目在 `vendor/katex/` 中内置 KaTeX `0.16.11` 的浏览器运行资源，用于在扩展侧栏中渲染 Markdown 消息里的 LaTeX 公式。
-- KaTeX 使用 MIT License。许可证文本已随资源保留在 `vendor/katex/LICENSE`。
-- 分发或修改本扩展时，请保留 `vendor/katex/LICENSE` 以及 KaTeX 相关版权与许可声明。
+- 本项目在 `vendor/marked.min.js` 中内置 marked `13.0.3`，用于成熟的 GFM Markdown 解析。
+- 本项目在 `vendor/purify.min.js` 中内置 DOMPurify `3.1.6`，用于清洗 Markdown 渲染后的 HTML。
+- KaTeX、marked 和 DOMPurify 均使用 MIT License。许可证文本已随资源保留在 `vendor/katex/LICENSE`、`vendor/marked.LICENSE.md` 和 `vendor/dompurify.LICENSE`。
+- 分发或修改本扩展时，请保留 `vendor/` 中第三方依赖相关版权与许可声明。
 - KaTeX 项目地址：https://katex.org/
+- marked 项目地址：https://marked.js.org/
+- DOMPurify 项目地址：https://github.com/cure53/DOMPurify

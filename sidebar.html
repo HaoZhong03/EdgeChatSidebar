@@ -13,8 +13,8 @@
         <div class="settings-dialog">
           <div class="settings-titlebar">
             <h2>设置</h2>
-            <button id="closeSettingsButton" class="icon-button" type="button" aria-label="关闭设置" title="关闭设置">
-              <span aria-hidden="true">×</span>
+            <button id="closeSettingsButton" class="icon-button close-button" type="button" aria-label="关闭设置" title="关闭设置">
+              <span aria-hidden="true"></span>
             </button>
           </div>
           <label class="field">
@@ -73,11 +73,17 @@
         <div class="history-dialog">
           <div class="settings-titlebar">
             <h2>历史对话</h2>
-            <button id="closeHistoryButton" class="icon-button" type="button" aria-label="关闭历史对话" title="关闭历史对话">
-              <span aria-hidden="true">×</span>
+            <button id="closeHistoryButton" class="icon-button close-button" type="button" aria-label="关闭历史对话" title="关闭历史对话">
+              <span aria-hidden="true"></span>
             </button>
           </div>
           <button id="newChatButton" class="new-chat-button" type="button">新建对话</button>
+          <div id="historyNotice" class="history-notice" role="status" hidden>
+            <div class="history-notice-dialog">
+              <div id="historyNoticeText" class="history-notice-text"></div>
+              <button id="closeHistoryNoticeButton" class="history-notice-button" type="button">知道了</button>
+            </div>
+          </div>
           <div id="historyList" class="history-list" aria-label="历史对话列表"></div>
         </div>
       </section>
@@ -111,6 +117,8 @@
     </main>
 
     <script src="vendor/katex/katex.min.js"></script>
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/purify.min.js"></script>
     <script src="sidebar.js"></script>
   </body>
 </html>
