@@ -603,10 +603,22 @@ button {
 }
 
 .message.user {
+  position: relative;
   align-self: flex-end;
   border-color: var(--primary);
   background: var(--primary);
   color: var(--primary-text);
+}
+
+.message.user:has(.message-actions) {
+  margin-right: 0;
+  margin-bottom: 32px;
+}
+
+.message.user.editing {
+  width: min(92%, 520px);
+  background: var(--surface);
+  color: var(--text);
 }
 
 .message.assistant {
@@ -817,6 +829,100 @@ button {
 
 .message.user .message-content a {
   color: var(--primary-text);
+}
+
+.message-actions {
+  position: absolute;
+  right: 0;
+  bottom: -32px;
+  display: grid;
+  place-items: center;
+  margin: 0;
+}
+
+.message-edit,
+.message-edit-cancel,
+.message-edit-submit {
+  min-height: 30px;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.message-edit {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  min-height: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0;
+  background: var(--surface);
+  color: var(--text-subtle);
+  box-shadow: 0 4px 12px var(--shadow);
+  line-height: 1;
+}
+
+.message-edit:hover {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  color: var(--primary-strong);
+}
+
+.message-edit:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.message-edit-form {
+  display: grid;
+  gap: 8px;
+}
+
+.message-edit-input {
+  width: 100%;
+  min-height: 76px;
+  max-height: min(34vh, 240px);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 9px 10px;
+  resize: vertical;
+  background: var(--field-bg);
+  color: var(--text);
+  line-height: 1.45;
+  outline: none;
+}
+
+.message-edit-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.message-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.message-edit-cancel {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.message-edit-submit {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.message-edit-cancel:hover {
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface-soft));
+}
+
+.message-edit-submit:hover {
+  background: color-mix(in srgb, var(--primary-strong) 80%, var(--primary));
 }
 
 .composer {

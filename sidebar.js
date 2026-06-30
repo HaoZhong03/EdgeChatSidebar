@@ -94,6 +94,8 @@ let settings = {
   currentSessionId: ""
 };
 let pendingImages = [];
+let isRequestInFlight = false;
+let editingMessageIndex = -1;
 
 function storageGet(keys) {
   if (!globalThis.chrome?.storage?.local) {
@@ -299,6 +301,20 @@ function updateTokenUsageDisplay(usage = getLatestTokenUsage()) {
 
   tokenUsageText.hidden = false;
   tokenUsageText.textContent = `${formatTokenCount(contextTokens)} tokens`;
+}
+
+function getLatestEditableUserMessageIndex(messages = settings.messages) {
+  if (isRequestInFlight || editingMessageIndex !== -1) {
+    return -1;
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 function applyTheme(theme) {
@@ -562,7 +578,8 @@ function closeHistory(restoreFocus = true) {
   }
 }
 
-function renderMessages() {
+function renderMessages(options = {}) {
+  const previousScrollTop = messagesEl.scrollTop;
   messagesEl.innerHTML = "";
 
   if (settings.messages.length === 0) {
@@ -573,11 +590,24 @@ function renderMessages() {
     return;
   }
 
-  for (const message of settings.messages) {
+  const editableMessageIndex = getLatestEditableUserMessageIndex();
+
+  for (const [index, message] of settings.messages.entries()) {
+    if (index === editingMessageIndex && message.role === "user") {
+      appendEditableUserMessage(message, index);
+      continue;
+    }
+
     appendMessage(message.role, message.content, {
+      editable: index === editableMessageIndex,
       images: message.images,
+      messageIndex: index,
       reasoningContent: message.reasoningContent || ""
     });
+  }
+
+  if (options.preserveScroll) {
+    messagesEl.scrollTop = previousScrollTop;
   }
 }
 
@@ -841,6 +871,68 @@ function setMessageContent(element, role, content, options = {}) {
   }
 }
 
+function createUserMessageActions(messageIndex) {
+  const actions = document.createElement("div");
+  actions.className = "message-actions";
+
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "message-edit";
+  editButton.dataset.messageIndex = String(messageIndex);
+  editButton.setAttribute("aria-label", "编辑并重新发送这条消息");
+  editButton.setAttribute("title", "编辑并重新发送");
+  editButton.textContent = "✎";
+
+  actions.appendChild(editButton);
+  return actions;
+}
+
+function appendEditableUserMessage(message, messageIndex) {
+  const wrapper = document.createElement("article");
+  wrapper.className = "message user editing";
+
+  const form = document.createElement("form");
+  form.className = "message-edit-form";
+  form.dataset.messageIndex = String(messageIndex);
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "message-edit-input";
+  textarea.value = getMessageText(message);
+  textarea.rows = Math.min(8, Math.max(2, textarea.value.split(/\r?\n/).length));
+  textarea.setAttribute("aria-label", "编辑消息内容");
+
+  const images = renderMessageImages(message.images);
+
+  const actions = document.createElement("div");
+  actions.className = "message-edit-actions";
+
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.className = "message-edit-cancel";
+  cancelButton.textContent = "取消";
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "submit";
+  saveButton.className = "message-edit-submit";
+  saveButton.textContent = "重新发送";
+
+  actions.append(cancelButton, saveButton);
+  form.appendChild(textarea);
+  if (images) {
+    form.appendChild(images);
+  }
+  form.appendChild(actions);
+
+  wrapper.appendChild(form);
+  messagesEl.appendChild(wrapper);
+  try {
+    textarea.focus({ preventScroll: true });
+  } catch {
+    textarea.focus();
+  }
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+}
+
 function isMessagesNearBottom() {
   const distanceFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
   return distanceFromBottom <= 24;
@@ -918,6 +1010,11 @@ function appendMessage(role, content, options = {}) {
   body.className = "message-content";
   setMessageContent(body, role, content, options);
   wrapper.appendChild(body);
+
+  if (role === "user" && options.editable) {
+    wrapper.appendChild(createUserMessageActions(options.messageIndex));
+  }
+
   messagesEl.appendChild(wrapper);
   scrollMessagesToBottom();
   return body;
@@ -1433,6 +1530,77 @@ async function addClipboardImages(files) {
   }
 }
 
+function validateOutgoingMessage(images) {
+  const provider = getActiveProvider();
+  const providerConfig = getActiveProviderConfig();
+
+  if (images.length > 0 && !isMimoMultimodalConfig(provider, providerConfig)) {
+    appendMessage("system", `粘贴图片仅支持小米 MiMo 的 ${MIMO_MULTIMODAL_MODEL} 模型，请切换模型后再发送。`);
+    return false;
+  }
+
+  if (!providerConfig.apiKey) {
+    openSettings();
+    appendMessage("system", `请先在高级模型 API 中保存 ${provider.label} API Key。`);
+    return false;
+  }
+
+  return true;
+}
+
+async function requestReplyForCurrentMessages() {
+  let errorMessage = "";
+
+  isRequestInFlight = true;
+  renderMessages();
+
+  const assistantMessage = appendMessage("assistant", "", { streaming: true });
+  sendButton.disabled = true;
+  closeModelMenu();
+  modelSwitchButton.disabled = true;
+  updateModelSwitchLabel("请求中");
+
+  try {
+    const reply = await callModelStream(({ content: replyContent, reasoningContent }) => {
+      const shouldFollowOutput = isMessagesNearBottom();
+      assistantMessage.updateReasoning(reasoningContent);
+      assistantMessage.updateContent(replyContent);
+
+      if (shouldFollowOutput) {
+        scrollMessagesToBottom();
+      }
+    });
+
+    const shouldFollowOutput = isMessagesNearBottom();
+    assistantMessage.finish();
+    assistantMessage.updateContent(reply.content);
+    if (shouldFollowOutput) {
+      scrollMessagesToBottom();
+    }
+    settings.messages.push({
+      role: "assistant",
+      content: reply.content,
+      reasoningContent: reply.reasoningContent,
+      usage: reply.usage
+    });
+    await saveMessages();
+    updateModelSwitchLabel();
+    updateTokenUsageDisplay(reply.usage);
+  } catch (error) {
+    errorMessage = `请求失败：${error.message}`;
+    updateModelSwitchLabel("请求失败");
+  } finally {
+    isRequestInFlight = false;
+    sendButton.disabled = false;
+    modelSwitchButton.disabled = false;
+    renderMessages();
+    if (errorMessage) {
+      appendMessage("system", errorMessage);
+    }
+    messageInput.focus();
+  }
+}
+
 settingsButton.addEventListener("click", () => {
   if (settingsPanel.classList.contains("open")) {
     closeSettings();
@@ -1708,6 +1876,64 @@ composerResizeHandle.addEventListener("pointerdown", (event) => {
   composerResizeHandle.addEventListener("pointercancel", stopResizing);
 });
 
+messagesEl.addEventListener("click", (event) => {
+  const editButton = event.target.closest(".message-edit");
+  if (!editButton) return;
+
+  const messageIndex = Number(editButton.dataset.messageIndex);
+  if (messageIndex !== getLatestEditableUserMessageIndex()) {
+    return;
+  }
+
+  editingMessageIndex = messageIndex;
+  renderMessages({ preserveScroll: true });
+});
+
+messagesEl.addEventListener("click", (event) => {
+  const cancelButton = event.target.closest(".message-edit-cancel");
+  if (!cancelButton) return;
+
+  editingMessageIndex = -1;
+  renderMessages();
+});
+
+messagesEl.addEventListener("submit", async (event) => {
+  const form = event.target.closest(".message-edit-form");
+  if (!form) return;
+
+  event.preventDefault();
+
+  const messageIndex = Number(form.dataset.messageIndex);
+  const originalMessage = settings.messages[messageIndex];
+  if (messageIndex !== editingMessageIndex || originalMessage?.role !== "user") {
+    return;
+  }
+
+  const textarea = form.querySelector(".message-edit-input");
+  let content = textarea.value.trim();
+  const images = normalizeImageAttachments(originalMessage.images);
+  if (!content && images.length === 0) {
+    return;
+  }
+
+  if (!validateOutgoingMessage(images)) {
+    return;
+  }
+
+  if (!content && images.length > 0) {
+    content = DEFAULT_IMAGE_PROMPT;
+  }
+
+  settings.messages = [
+    ...settings.messages.slice(0, messageIndex),
+    { role: "user", content, images }
+  ];
+  editingMessageIndex = -1;
+  await saveMessages();
+  updateTokenUsageDisplay();
+  await requestReplyForCurrentMessages();
+});
+
 messageInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -1746,17 +1972,7 @@ chatForm.addEventListener("submit", async (event) => {
   const images = normalizeImageAttachments(pendingImages);
   if (!content && images.length === 0) return;
 
-  const provider = getActiveProvider();
-  const providerConfig = getActiveProviderConfig();
-
-  if (images.length > 0 && !isMimoMultimodalConfig(provider, providerConfig)) {
-    appendMessage("system", `粘贴图片仅支持小米 MiMo 的 ${MIMO_MULTIMODAL_MODEL} 模型，请切换模型后再发送。`);
-    return;
-  }
-
-  if (!providerConfig.apiKey) {
-    openSettings();
-    appendMessage("system", `请先在高级模型 API 中保存 ${provider.label} API Key。`);
+  if (!validateOutgoingMessage(images)) {
     return;
   }
 
@@ -1771,47 +1987,7 @@ chatForm.addEventListener("submit", async (event) => {
   pendingImages = [];
   renderPendingImages();
   await saveMessages();
-
-  const assistantMessage = appendMessage("assistant", "", { streaming: true });
-  sendButton.disabled = true;
-  closeModelMenu();
-  modelSwitchButton.disabled = true;
-  updateModelSwitchLabel("请求中");
-
-  try {
-    const reply = await callModelStream(({ content: replyContent, reasoningContent }) => {
-      const shouldFollowOutput = isMessagesNearBottom();
-      assistantMessage.updateReasoning(reasoningContent);
-      assistantMessage.updateContent(replyContent);
-
-      if (shouldFollowOutput) {
-        scrollMessagesToBottom();
-      }
-    });
-
-    const shouldFollowOutput = isMessagesNearBottom();
-    assistantMessage.finish();
-    assistantMessage.updateContent(reply.content);
-    if (shouldFollowOutput) {
-      scrollMessagesToBottom();
-    }
-    settings.messages.push({
-      role: "assistant",
-      content: reply.content,
-      reasoningContent: reply.reasoningContent,
-      usage: reply.usage
-    });
-    await saveMessages();
-    updateModelSwitchLabel();
-    updateTokenUsageDisplay(reply.usage);
-  } catch (error) {
-    setMessageContent(assistantMessage.body, "system", `请求失败：${error.message}`);
-    updateModelSwitchLabel("请求失败");
-  } finally {
-    sendButton.disabled = false;
-    modelSwitchButton.disabled = false;
-    messageInput.focus();
-  }
+  await requestReplyForCurrentMessages();
 });
 
 loadSettings().catch((error) => {
