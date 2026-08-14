@@ -597,7 +597,7 @@ button {
   max-width: 92%;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 10px 11px;
+  padding: 8px 11px;
   background: var(--surface);
   box-shadow: 0 6px 18px var(--shadow);
 }
@@ -942,8 +942,8 @@ button {
 
 .message-actions {
   position: absolute;
-  right: 0;
-  bottom: -32px;
+  right: 0px;
+  bottom: -35px;
   display: grid;
   place-items: center;
   margin: 0;
@@ -1297,9 +1297,9 @@ button {
   display: grid;
   gap: 2px;
   width: 100%;
-  min-height: 42px;
+  min-height: 34px;
   border-radius: 8px;
-  padding: 7px 9px;
+  padding: 7px 10px;
   background: var(--surface-soft);
   color: var(--text);
   text-align: left;

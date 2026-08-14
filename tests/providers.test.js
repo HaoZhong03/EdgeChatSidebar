@@ -101,8 +101,19 @@ test("custom providers support multiple models and optional Bearer auth", () => 
   assert.equal(body.messages[0].content, "hello");
   assert.equal(body.max_tokens, 100);
   assert.deepEqual(body.stream_options, { include_usage: true });
-  assert.equal("thinking" in body, false);
+  assert.deepEqual(body.thinking, { type: "enabled" });
   assert.equal("tools" in body, false);
+
+  custom.capabilityCache.thinking = "unsupported";
+  const noThinkingProfile = getProviderProfile(
+    normalizeProviderConfigs({ ...createDefaultProviderConfigs(), [custom.id]: custom }),
+    custom.id
+  );
+  assert.equal("thinking" in buildChatCompletionRequest({
+    profile: noThinkingProfile,
+    messages: [{ role: "user", content: "hello" }],
+    stream: true
+  }), false);
 });
 
 test("custom endpoint validation accepts HTTPS and loopback HTTP only", () => {
@@ -121,6 +132,8 @@ test("compatibility retry detection requires an explicit unknown-field client er
   assert.equal(isExplicitUnknownParameterError(unknownStream, "stream_options"), true);
   assert.equal(isExplicitUnknownParameterError(authError, "stream_options"), false);
   assert.equal(isExplicitUnknownParameterError(unknownStream, "max_tokens"), false);
+  const forbiddenThinking = parseApiError('{"detail":[{"type":"extra_forbidden","loc":["body","thinking"]}]}', 422);
+  assert.equal(isExplicitUnknownParameterError(forbiddenThinking, "thinking"), true);
 });
 
 test("usage mapping keeps only measured provider fields", () => {
@@ -167,4 +180,27 @@ test("SSE accumulator accepts reasoning, nullable deltas, empty-choice usage chu
   assert.equal(result.content, "answer");
   assert.equal(result.usage.promptTokens, 9);
   assert.equal(result.done, true);
+});
+
+test("SSE accumulator accepts common custom-provider reasoning aliases", () => {
+  const stream = createStreamAccumulator({ providerId: "custom", model: "reasoner" });
+  stream.push('{"choices":[{"delta":{"reasoning":"one"}}]}');
+  stream.push('{"choices":[{"delta":{"analysis":" two"}}]}');
+  stream.push('{"choices":[{"delta":{"thinking":" three"}}]}');
+  stream.push('{"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":" four"}]}}]}');
+  stream.push('{"choices":[{"delta":{"content":"answer"}}]}');
+  assert.equal(stream.result().reasoningContent, "one two three four");
+  assert.equal(stream.result().content, "answer");
+});
+
+test("custom SSE accumulator separates a leading think block from answer content", () => {
+  const stream = createStreamAccumulator({
+    providerId: "custom",
+    model: "reasoner",
+    extractTaggedReasoning: true
+  });
+  stream.push('{"choices":[{"delta":{"content":"<think>first"}}]}');
+  stream.push('{"choices":[{"delta":{"content":" second</think>answer"}}]}');
+  assert.equal(stream.result().reasoningContent, "first second");
+  assert.equal(stream.result().content, "answer");
 });

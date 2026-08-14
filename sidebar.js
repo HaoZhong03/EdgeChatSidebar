@@ -193,11 +193,7 @@ function renderModelMenu() {
       modelText.className = "model-menu-model";
       modelText.textContent = model;
 
-      const providerText = document.createElement("span");
-      providerText.className = "model-menu-provider";
-      providerText.textContent = provider.label;
-
-      option.append(modelText, providerText);
+      option.append(modelText);
       group.appendChild(option);
     }
 
@@ -245,12 +241,6 @@ function updateTokenUsageDisplay(usage = getLatestTokenUsage()) {
   tokenUsageDetails.hidden = true;
   tokenUsageButton.setAttribute("aria-expanded", "false");
 
-  if (state === "stale") {
-    tokenUsageButton.hidden = false;
-    tokenUsageText.textContent = "上下文待更新";
-    tokenUsageDetails.innerHTML = "";
-    return;
-  }
   if (state === "unavailable") {
     tokenUsageButton.hidden = false;
     tokenUsageText.textContent = "此模型未返回用量";
@@ -269,16 +259,9 @@ function updateTokenUsageDisplay(usage = getLatestTokenUsage()) {
   tokenUsageText.textContent = `${formatTokenCount(usage.totalTokens)} tokens`;
   const details = [
     ["输入 / 上下文", usage.promptTokens, "tokens"],
-    ["输出", usage.completionTokens, "tokens"],
-    ["总量", usage.totalTokens, "tokens"],
     ["推理", usage.reasoningTokens, "tokens"],
-    ["缓存命中", usage.cachedPromptTokens, "tokens"],
-    ["缓存未命中", usage.uncachedPromptTokens, "tokens"],
-    ["图片", usage.imageTokens, "tokens"],
-    ["音频", usage.audioTokens, "tokens"],
-    ["视频", usage.videoTokens, "tokens"],
-    ["搜索调用", usage.webSearchToolUsage, "次"],
-    ["搜索页面", usage.webSearchPageUsage, "页"]
+    ["输出", usage.completionTokens, "tokens"],
+    ["总量", usage.totalTokens, "tokens"]
   ].filter(([, value]) => Number.isFinite(value));
   tokenUsageDetails.innerHTML = details.map(([label, value, unit]) => (
     `<div class="token-usage-details-row"><span>${label}</span><strong>${formatTokenCount(value)} ${unit}</strong></div>`
@@ -1227,21 +1210,27 @@ async function callModelStream(onDelta) {
   let body = buildProviderRequestBody(provider, getActiveProviderConfig());
   let response = await fetchChatCompletion(provider, body);
 
-  if (!response.ok) {
+  for (let attempt = 0; !response.ok && attempt < 2; attempt += 1) {
     const error = parseApiError(await response.text(), response.status);
     if (provider.type === "custom" && body.stream_options && isExplicitUnknownParameterError(error, "stream_options")) {
       await rememberCustomCapability(provider.id, "streamUsage", "implicit");
-      provider = getActiveProvider();
-      body = buildProviderRequestBody(provider, getActiveProviderConfig(), {
-        overrides: { streamUsage: "implicit" }
-      });
-      response = await fetchChatCompletion(provider, body);
-      if (!response.ok) throw parseApiError(await response.text(), response.status);
+    } else if (provider.type === "custom" && body.thinking && isExplicitUnknownParameterError(error, "thinking")) {
+      await rememberCustomCapability(provider.id, "thinking", "unsupported");
     } else {
       throw error;
     }
-  } else if (provider.type === "custom" && body.stream_options) {
-    await rememberCustomCapability(provider.id, "streamUsage", "include_usage");
+    provider = getActiveProvider();
+    body = buildProviderRequestBody(provider, getActiveProviderConfig());
+    response = await fetchChatCompletion(provider, body);
+  }
+
+  if (!response.ok) {
+    throw parseApiError(await response.text(), response.status);
+  }
+
+  if (provider.type === "custom") {
+    if (body.stream_options) await rememberCustomCapability(provider.id, "streamUsage", "include_usage");
+    if (body.thinking) await rememberCustomCapability(provider.id, "thinking", "enabled");
   }
 
   if (!response.body) {
@@ -1251,7 +1240,11 @@ async function callModelStream(onDelta) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const accumulator = createStreamAccumulator({ providerId: provider.id, model: provider.model });
+  const accumulator = createStreamAccumulator({
+    providerId: provider.id,
+    model: provider.model,
+    extractTaggedReasoning: provider.type === "custom"
+  });
 
   function handleEventData(data) {
     const state = accumulator.push(data);
@@ -1335,7 +1328,7 @@ async function callModelOnce(messages, options = {}) {
   });
   let response = await fetchChatCompletion(provider, body);
 
-  if (!response.ok) {
+  for (let attempt = 0; !response.ok && attempt < 2; attempt += 1) {
     const error = parseApiError(await response.text(), response.status);
     if (
       provider.type === "custom"
@@ -1343,23 +1336,32 @@ async function callModelOnce(messages, options = {}) {
       && isExplicitUnknownParameterError(error, "max_tokens")
     ) {
       maxOutputField = "max_completion_tokens";
-      body = buildProviderRequestBody(provider, config, {
-        messages,
-        stream: false,
-        includeSystemPrompt: false,
-        includeWebSearch: false,
-        maxTokens: options.maxTokens,
-        overrides: { maxOutputField }
-      });
-      response = await fetchChatCompletion(provider, body);
-      if (!response.ok) throw parseApiError(await response.text(), response.status);
+    } else if (provider.type === "custom" && body.thinking && isExplicitUnknownParameterError(error, "thinking")) {
+      await rememberCustomCapability(provider.id, "thinking", "unsupported");
     } else {
       throw error;
     }
+    provider = getActiveProvider();
+    body = buildProviderRequestBody(provider, config, {
+      messages,
+      stream: false,
+      includeSystemPrompt: false,
+      includeWebSearch: false,
+      maxTokens: options.maxTokens,
+      overrides: { maxOutputField }
+    });
+    response = await fetchChatCompletion(provider, body);
   }
 
-  if (provider.type === "custom" && Number.isFinite(options.maxTokens)) {
-    await rememberCustomCapability(provider.id, "maxOutputField", maxOutputField);
+  if (!response.ok) {
+    throw parseApiError(await response.text(), response.status);
+  }
+
+  if (provider.type === "custom") {
+    if (Number.isFinite(options.maxTokens)) {
+      await rememberCustomCapability(provider.id, "maxOutputField", maxOutputField);
+    }
+    if (body.thinking) await rememberCustomCapability(provider.id, "thinking", "enabled");
     provider = getActiveProvider();
   }
 
@@ -1611,6 +1613,7 @@ async function requestReplyForCurrentMessages() {
 
     const shouldFollowOutput = isMessagesNearBottom();
     assistantMessage.finish();
+    assistantMessage.updateReasoning(reply.reasoningContent);
     assistantMessage.updateContent(reply.content);
     if (shouldFollowOutput) {
       scrollMessagesToBottom();

@@ -55,7 +55,7 @@
 - 使用小米 MiMo `mimo-v2.5` 支持粘贴图片发送时，扩展会按官方 OpenAI 兼容多模态消息格式发送：`content: [{ type: "text", text }, { type: "image_url", image_url: { url: "data:image/...;base64,..." } }]`。图片在磁盘上作为独立加密二进制记录保存，不保留明文 Data URL。
 - 支持流式输出和 thinking mode；回答会边生成边显示，思考过程会在回答上方以折叠区展示。
 - 思考过程只用于本地展示和历史记录，不会作为下一轮请求消息发送给模型 API。
-- **自定义提供商只支持文本 `/chat/completions` 基础兼容模式，不开放图片、联网搜索、thinking、任意请求头、自由 JSON 模板或自定义 JavaScript。**
+- **自定义提供商只支持文本 `/chat/completions` 基础兼容模式，不开放图片、联网搜索、任意请求头、自由 JSON 模板或自定义 JavaScript。**思考模式会先尝试发送 `thinking.type=enabled`；服务端明确报告不支持时会移除该字段重试并记忆结果。流式响应可识别 `reasoning_content`、`reasoning`、`analysis` 和 `thinking` 等常见思考字段。
 - 流式请求先发送 `stream_options.include_usage=true`；只有服务端在开始输出前明确报告该字段未知时，才移除该字段重试并记忆结果。
 - 如果服务端成功响应但不返回 usage，状态栏显示“此模型未返回用量”，不会把字符数或本地估算冒充精确 token。
 

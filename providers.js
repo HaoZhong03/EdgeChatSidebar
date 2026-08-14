@@ -42,7 +42,7 @@ export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
   })
 });
 
-const UNKNOWN_PARAMETER_PATTERN = /(?:unknown|unsupported|unrecognized|unexpected|not\s+supported|extra\s+(?:field|parameter)|invalid\s+(?:field|parameter)|未知|不支持|无法识别|非法参数)/i;
+const UNKNOWN_PARAMETER_PATTERN = /(?:unknown|unsupported|unrecognized|unexpected|not\s+supported|not\s+(?:permitted|allowed)|extra(?:_forbidden|\s+(?:field|parameter|input))|invalid\s+(?:field|parameter)|未知|不支持|无法识别|非法参数)/i;
 
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -118,9 +118,12 @@ export function normalizeCustomProvider(value, existingId = "") {
           : "auto",
         streamUsage: ["include_usage", "implicit"].includes(value.capabilityCache.streamUsage)
           ? value.capabilityCache.streamUsage
+          : "auto",
+        thinking: ["enabled", "unsupported"].includes(value.capabilityCache.thinking)
+          ? value.capabilityCache.thinking
           : "auto"
       }
-    : { maxOutputField: "auto", streamUsage: "auto" };
+    : { maxOutputField: "auto", streamUsage: "auto", thinking: "auto" };
 
   return {
     id,
@@ -194,7 +197,7 @@ export function getProviderProfiles(configs) {
       capabilities: {
         maxOutputField: config.capabilityCache.maxOutputField,
         streamUsage: config.capabilityCache.streamUsage,
-        thinking: "unsupported",
+        thinking: config.capabilityCache.thinking,
         imageInput: false,
         webSearch: false
       }
@@ -260,7 +263,7 @@ export function buildChatCompletionRequest(options) {
     body.stream_options = { include_usage: true };
   }
 
-  if (profile.capabilities.thinking === "enabled") {
+  if (["enabled", "auto"].includes(profile.capabilities.thinking)) {
     body.thinking = { type: "enabled" };
   }
 
@@ -370,6 +373,25 @@ export function isExplicitUnknownParameterError(error, parameterName) {
   return text.toLowerCase().includes(parameterName.toLowerCase()) && UNKNOWN_PARAMETER_PATTERN.test(text);
 }
 
+function reasoningText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(reasoningText).join("");
+  if (!value || typeof value !== "object") return "";
+  return reasoningText(value.text ?? value.content ?? value.summary);
+}
+
+function splitLeadingThinkingBlock(value) {
+  const opening = /^\s*<(think|thinking)>/i.exec(value);
+  if (!opening) return { content: value, reasoning: "" };
+  const remainder = value.slice(opening[0].length);
+  const closing = /<\/(?:think|thinking)>/i.exec(remainder);
+  if (!closing) return { content: "", reasoning: remainder };
+  return {
+    content: remainder.slice(closing.index + closing[0].length).replace(/^\s+/, ""),
+    reasoning: remainder.slice(0, closing.index)
+  };
+}
+
 export function createStreamAccumulator(metadata = {}) {
   let content = "";
   let reasoningContent = "";
@@ -377,13 +399,28 @@ export function createStreamAccumulator(metadata = {}) {
   let done = false;
   let emitted = false;
 
+  function snapshot(changed = false) {
+    const tagged = metadata.extractTaggedReasoning
+      ? splitLeadingThinkingBlock(content)
+      : { content, reasoning: "" };
+    const combinedReasoning = [reasoningContent, tagged.reasoning].filter(Boolean).join("\n");
+    return {
+      done,
+      changed,
+      content: tagged.content,
+      reasoningContent: combinedReasoning,
+      usage,
+      emitted
+    };
+  }
+
   return {
     push(data) {
       const value = cleanString(data);
-      if (!value) return { done, changed: false, content, reasoningContent, usage, emitted };
+      if (!value) return snapshot();
       if (value === "[DONE]") {
         done = true;
-        return { done, changed: false, content, reasoningContent, usage, emitted };
+        return snapshot();
       }
 
       let payload;
@@ -400,17 +437,32 @@ export function createStreamAccumulator(metadata = {}) {
         usage = normalizeUsage(payload.usage, metadata);
       }
 
-      const delta = payload?.choices?.[0]?.delta || {};
+      const choice = payload?.choices?.[0] || {};
+      const delta = choice.delta || {};
+      const message = choice.message || {};
       const nextContent = typeof delta.content === "string" ? delta.content : "";
-      const nextReasoning = typeof delta.reasoning_content === "string" ? delta.reasoning_content : "";
+      const reasoningCandidates = [
+        delta.reasoning_content,
+        delta.reasoning,
+        delta.analysis,
+        delta.thinking,
+        delta.reasoning_text,
+        delta.reasoning_details,
+        message.reasoning_content,
+        message.reasoning,
+        message.analysis,
+        message.thinking,
+        message.reasoning_details
+      ];
+      const nextReasoning = reasoningCandidates.map(reasoningText).find(Boolean) || "";
       content += nextContent;
       reasoningContent += nextReasoning;
       const changed = Boolean(nextContent || nextReasoning);
       emitted ||= changed;
-      return { done, changed, content, reasoningContent, usage, emitted };
+      return snapshot(changed);
     },
     result() {
-      return { content, reasoningContent, usage, emitted, done };
+      return snapshot();
     }
   };
 }
