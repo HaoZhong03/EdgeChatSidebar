@@ -45,21 +45,49 @@
                 <span>API Key</span>
                 <input id="deepseekApiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
               </label>
-              <label class="field">
-                <span>Endpoint</span>
-                <input id="deepseekEndpointInput" type="url" autocomplete="off">
-              </label>
             </div>
             <div class="api-provider">
               <h3>小米 MiMo</h3>
               <label class="field">
                 <span>API Key</span>
-                <input id="mimoApiKeyInput" type="password" autocomplete="off" placeholder="Bearer token">
+                <input id="mimoApiKeyInput" type="password" autocomplete="off" placeholder="MiMo API Key">
+              </label>
+            </div>
+            <div class="api-provider custom-provider-settings">
+              <h3>自定义提供商</h3>
+              <p class="settings-help">支持 OpenAI-compatible Chat Completions。公网仅允许 HTTPS，本地 HTTP 仅允许 localhost 或 127.0.0.1。</p>
+              <div id="customProviderList" class="custom-provider-list"></div>
+              <input id="customProviderIdInput" type="hidden">
+              <label class="field">
+                <span>提供商名称</span>
+                <input id="customProviderNameInput" type="text" autocomplete="off" placeholder="例如：本地模型">
               </label>
               <label class="field">
-                <span>Endpoint</span>
-                <input id="mimoEndpointInput" type="url" autocomplete="off">
+                <span>完整 Chat Completions Endpoint</span>
+                <input id="customProviderEndpointInput" type="url" autocomplete="off" placeholder="https://example.com/v1/chat/completions">
               </label>
+              <label class="field">
+                <span>API Key（可为空）</span>
+                <input id="customProviderApiKeyInput" type="password" autocomplete="off" placeholder="有值时使用 Bearer">
+              </label>
+              <label class="field">
+                <span>模型 ID（每行一个）</span>
+                <textarea id="customProviderModelsInput" rows="3" placeholder="model-a&#10;model-b"></textarea>
+              </label>
+              <div class="inline-actions">
+                <button id="saveCustomProviderButton" type="button" class="secondary">添加提供商</button>
+                <button id="cancelCustomProviderButton" type="button" class="secondary" hidden>取消编辑</button>
+              </div>
+              <p id="customProviderNotice" class="settings-notice" role="status" hidden></p>
+            </div>
+          </details>
+          <details class="api-settings data-settings">
+            <summary>本地数据与缓存</summary>
+            <p class="settings-help">API Key、系统提示词、对话和图片均加密保存在本机。清理缓存不会删除历史列表中可见的对话。</p>
+            <p id="storageNotice" class="settings-notice" role="status" hidden></p>
+            <div class="inline-actions">
+              <button id="cleanupCacheButton" type="button" class="secondary">清理缓存</button>
+              <button id="clearAllDataButton" type="button" class="danger">清空全部本地数据</button>
             </div>
           </details>
           <div class="settings-actions">
@@ -103,7 +131,10 @@
         <div class="status-info">
           <button id="modelSwitchButton" class="model-switch" type="button" aria-label="切换模型" aria-expanded="false" aria-controls="modelMenu">DeepSeek</button>
           <div id="modelMenu" class="model-menu" hidden></div>
-          <span id="tokenUsageText" class="token-usage" hidden></span>
+          <button id="tokenUsageButton" class="token-usage" type="button" aria-expanded="false" aria-controls="tokenUsageDetails" hidden>
+            <span id="tokenUsageText"></span>
+          </button>
+          <div id="tokenUsageDetails" class="token-usage-details" hidden></div>
         </div>
         <div class="status-actions">
           <button id="historyButton" class="icon-button" type="button" aria-label="历史对话" title="历史对话">
@@ -119,6 +150,6 @@
     <script src="vendor/katex/katex.min.js"></script>
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
-    <script src="sidebar.js"></script>
+    <script type="module" src="sidebar.js"></script>
   </body>
 </html>

@@ -1,45 +1,29 @@
-const STORAGE_KEYS = {
-  activeProvider: "activeModelProvider",
-  providerConfigs: "modelProviderConfigs",
-  mimoWebSearchMode: "mimoWebSearchMode",
-  theme: "deepseekTheme",
-  systemPrompt: "deepseekSystemPrompt",
-  messages: "deepseekMessages",
-  sessions: "deepseekSessions",
-  currentSessionId: "deepseekCurrentSessionId",
-  legacyApiKey: "deepseekApiKey",
-  legacyModel: "deepseekModel"
-};
+import {
+  DEFAULT_PROVIDER_ID,
+  MIMO_MULTIMODAL_MODEL,
+  buildAuthHeaders,
+  buildChatCompletionRequest,
+  createDefaultProviderConfigs,
+  createStreamAccumulator,
+  getProviderProfile,
+  getProviderProfiles,
+  isExplicitUnknownParameterError,
+  normalizeCustomProvider,
+  normalizeProviderConfigs,
+  normalizeUsage,
+  parseApiError
+} from "./providers.js";
+import {
+  PREFERENCE_KEYS,
+  clearAllLocalData,
+  formatReleasedBytes,
+  garbageCollectSecureStore,
+  readLegacyStorage,
+  readSecureState,
+  removeLegacyStorage,
+  writeSecureState
+} from "./secure-storage.js";
 
-const MODEL_PROVIDERS = {
-  deepseek: {
-    id: "deepseek",
-    label: "DeepSeek",
-    apiUrl: "https://api.deepseek.com/chat/completions",
-    defaultModel: "deepseek-v4-flash",
-    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-    supportsThinking: true,
-    includeStreamUsage: true,
-    streamUnsupportedMessage: "当前浏览器不支持读取 DeepSeek 流式响应。",
-    parseErrorMessage: "DeepSeek 返回了无法解析的流式响应。",
-    emptyResponseMessage: "DeepSeek 没有返回可显示的内容。"
-  },
-  mimo: {
-    id: "mimo",
-    label: "小米 MiMo",
-    apiUrl: "https://api.xiaomimimo.com/v1/chat/completions",
-    defaultModel: "mimo-v2.5",
-    models: ["mimo-v2.5", "mimo-v2.5-pro"],
-    supportsThinking: false,
-    includeStreamUsage: false,
-    authHeader: "api-key",
-    streamUnsupportedMessage: "当前浏览器不支持读取小米 MiMo 流式响应。",
-    parseErrorMessage: "小米 MiMo 返回了无法解析的流式响应。",
-    emptyResponseMessage: "小米 MiMo 没有返回可显示的内容。"
-  }
-};
-
-const DEFAULT_PROVIDER_ID = "deepseek";
 const DEFAULT_THEME = "system";
 
 const modelSwitchButton = document.getElementById("modelSwitchButton");
@@ -57,9 +41,19 @@ const historyNotice = document.getElementById("historyNotice");
 const historyNoticeText = document.getElementById("historyNoticeText");
 const closeHistoryNoticeButton = document.getElementById("closeHistoryNoticeButton");
 const deepseekApiKeyInput = document.getElementById("deepseekApiKeyInput");
-const deepseekEndpointInput = document.getElementById("deepseekEndpointInput");
 const mimoApiKeyInput = document.getElementById("mimoApiKeyInput");
-const mimoEndpointInput = document.getElementById("mimoEndpointInput");
+const customProviderIdInput = document.getElementById("customProviderIdInput");
+const customProviderNameInput = document.getElementById("customProviderNameInput");
+const customProviderEndpointInput = document.getElementById("customProviderEndpointInput");
+const customProviderApiKeyInput = document.getElementById("customProviderApiKeyInput");
+const customProviderModelsInput = document.getElementById("customProviderModelsInput");
+const customProviderList = document.getElementById("customProviderList");
+const saveCustomProviderButton = document.getElementById("saveCustomProviderButton");
+const cancelCustomProviderButton = document.getElementById("cancelCustomProviderButton");
+const customProviderNotice = document.getElementById("customProviderNotice");
+const cleanupCacheButton = document.getElementById("cleanupCacheButton");
+const clearAllDataButton = document.getElementById("clearAllDataButton");
+const storageNotice = document.getElementById("storageNotice");
 const themeSelect = document.getElementById("themeSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
 const mimoWebSearchModeSelect = document.getElementById("mimoWebSearchModeSelect");
@@ -71,13 +65,14 @@ const composerResizeHandle = document.getElementById("composerResizeHandle");
 const pendingImagesEl = document.getElementById("pendingImages");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
+const tokenUsageButton = document.getElementById("tokenUsageButton");
+const tokenUsageDetails = document.getElementById("tokenUsageDetails");
 
 const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_IMAGE_MIN_HEIGHT = 124;
 const COMPOSER_MAX_MARGIN = 120;
 const DEFAULT_MIMO_WEB_SEARCH_MODE = "off";
 const MIMO_WEB_SEARCH_MODES = ["off", "auto", "force"];
-const MIMO_MULTIMODAL_MODEL = "mimo-v2.5";
 const DEFAULT_IMAGE_PROMPT = "请分析这张图片。";
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -93,85 +88,56 @@ let settings = {
   sessions: [],
   currentSessionId: ""
 };
+let MODEL_PROVIDERS = {};
 let pendingImages = [];
 let isRequestInFlight = false;
 let editingMessageIndex = -1;
 
-function storageGet(keys) {
-  if (!globalThis.chrome?.storage?.local) {
-    const result = {};
-    for (const key of keys) {
-      const rawValue = localStorage.getItem(key);
-      if (rawValue === null) continue;
-
-      try {
-        result[key] = JSON.parse(rawValue);
-      } catch {
-        result[key] = rawValue;
-      }
+function refreshProviderRegistry() {
+  MODEL_PROVIDERS = Object.fromEntries(getProviderProfiles(settings.providerConfigs).map((profile) => [
+    profile.id,
+    {
+      ...profile,
+      models: profile.models.map((model) => model.id),
+      defaultModel: profile.model,
+      apiUrl: profile.endpoint,
+      streamUnsupportedMessage: `当前浏览器不支持读取 ${profile.label} 的流式响应。`,
+      emptyResponseMessage: `${profile.label} 没有返回可显示的内容。`
     }
-    return Promise.resolve(result);
-  }
+  ]));
+}
 
-  return chrome.storage.local.get(keys);
+function storageGet(keys) {
+  return globalThis.chrome?.storage?.local ? chrome.storage.local.get(keys) : Promise.resolve({});
 }
 
 function storageSet(value) {
-  if (!globalThis.chrome?.storage?.local) {
-    for (const [key, nextValue] of Object.entries(value)) {
-      localStorage.setItem(key, JSON.stringify(nextValue));
-    }
-    return Promise.resolve();
-  }
-
-  return chrome.storage.local.set(value);
+  return globalThis.chrome?.storage?.local ? chrome.storage.local.set(value) : Promise.resolve();
 }
 
-function createDefaultProviderConfigs() {
-  return Object.fromEntries(
-    Object.values(MODEL_PROVIDERS).map((provider) => [
-      provider.id,
-      {
-        apiKey: "",
-        apiUrl: provider.apiUrl,
-        model: provider.defaultModel
-      }
-    ])
-  );
+async function persistPreferences() {
+  const activeConfig = settings.providerConfigs[settings.activeProvider];
+  await storageSet({
+    [PREFERENCE_KEYS.theme]: settings.theme,
+    [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
+    [PREFERENCE_KEYS.activeModel]: activeConfig?.model || "",
+    [PREFERENCE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode,
+    [PREFERENCE_KEYS.schemaVersion]: 1
+  });
 }
 
-function normalizeProviderConfigs(value, legacyApiKey = "", legacyModel = "") {
-  const defaults = createDefaultProviderConfigs();
-  const source = value && typeof value === "object" ? value : {};
-
-  for (const provider of Object.values(MODEL_PROVIDERS)) {
-    const config = source[provider.id] && typeof source[provider.id] === "object" ? source[provider.id] : {};
-    defaults[provider.id] = {
-      apiKey: typeof config.apiKey === "string" ? config.apiKey : defaults[provider.id].apiKey,
-      apiUrl: typeof config.apiUrl === "string" && config.apiUrl.trim()
-        ? config.apiUrl.trim()
-        : defaults[provider.id].apiUrl,
-      model: typeof config.model === "string" && config.model.trim()
-        ? config.model.trim()
-        : defaults[provider.id].model
-    };
-  }
-
-  if (!source.deepseek && legacyApiKey) {
-    defaults.deepseek.apiKey = legacyApiKey;
-    defaults.deepseek.model = legacyModel || defaults.deepseek.model;
-  }
-
-  if (defaults.mimo.apiUrl === "https://api.mimo.xiaomi.com/v1/chat/completions") {
-    defaults.mimo.apiUrl = MODEL_PROVIDERS.mimo.apiUrl;
-  }
-
-  if (!MODEL_PROVIDERS.mimo.models.includes(defaults.mimo.model)) {
-    defaults.mimo.model = MODEL_PROVIDERS.mimo.defaultModel;
-  }
-
-  return defaults;
+async function persistSecureState() {
+  await writeSecureState({
+    config: {
+      providerConfigs: settings.providerConfigs,
+      systemPrompt: settings.systemPrompt
+    },
+    sessions: settings.sessions,
+    currentSessionId: settings.currentSessionId
+  });
 }
+
+refreshProviderRegistry();
 
 function getActiveProvider() {
   return MODEL_PROVIDERS[settings.activeProvider] || MODEL_PROVIDERS[DEFAULT_PROVIDER_ID];
@@ -189,7 +155,7 @@ function normalizeMimoWebSearchMode(value) {
 function updateModelSwitchLabel(status = "") {
   const provider = getActiveProvider();
   const config = getActiveProviderConfig();
-  const connection = config.apiKey ? "已连接" : "未配置";
+  const connection = config.apiKey || provider.type === "custom" ? "已连接" : "未配置";
   const prefix = status || connection;
   modelSwitchButton.textContent = `${prefix} · ${config.model}`;
   modelSwitchButton.title = `当前模型：${provider.label} / ${config.model}。点击展开模型列表。`;
@@ -263,44 +229,71 @@ function formatTokenCount(value) {
   return new Intl.NumberFormat("zh-CN").format(value);
 }
 
-function normalizeUsage(value) {
-  if (!value || typeof value !== "object") {
-    return null;
+function getLatestTokenUsage() {
+  const session = getCurrentSession();
+  if (session.contextUsage) return normalizeUsage(session.contextUsage, session.contextUsage);
+  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+    const usage = normalizeUsage(session.messages[index]?.usage, session.messages[index]?.usage);
+    if (usage) return usage;
   }
-
-  const promptTokens = Number(value.prompt_tokens ?? value.promptTokens);
-  const completionTokens = Number(value.completion_tokens ?? value.completionTokens);
-  const totalTokens = Number(value.total_tokens ?? value.totalTokens);
-
-  return {
-    promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
-    completionTokens: Number.isFinite(completionTokens) ? completionTokens : null,
-    totalTokens: Number.isFinite(totalTokens) ? totalTokens : null
-  };
-}
-
-function getLatestTokenUsage(messages = settings.messages) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const usage = normalizeUsage(messages[index]?.usage);
-    if (usage) {
-      return usage;
-    }
-  }
-
   return null;
 }
 
 function updateTokenUsageDisplay(usage = getLatestTokenUsage()) {
-  const contextTokens = usage?.promptTokens ?? usage?.totalTokens;
+  const session = getCurrentSession();
+  const state = session.contextUsageState || usage?.state || "empty";
+  tokenUsageDetails.hidden = true;
+  tokenUsageButton.setAttribute("aria-expanded", "false");
 
-  if (!Number.isFinite(contextTokens)) {
-    tokenUsageText.hidden = true;
-    tokenUsageText.textContent = "";
+  if (state === "stale") {
+    tokenUsageButton.hidden = false;
+    tokenUsageText.textContent = "上下文待更新";
+    tokenUsageDetails.innerHTML = "";
+    return;
+  }
+  if (state === "unavailable") {
+    tokenUsageButton.hidden = false;
+    tokenUsageText.textContent = "此模型未返回用量";
+    tokenUsageDetails.innerHTML = "";
     return;
   }
 
-  tokenUsageText.hidden = false;
-  tokenUsageText.textContent = `${formatTokenCount(contextTokens)} tokens`;
+  if (!Number.isFinite(usage?.promptTokens)) {
+    tokenUsageButton.hidden = true;
+    tokenUsageText.textContent = "";
+    tokenUsageDetails.innerHTML = "";
+    return;
+  }
+
+  tokenUsageButton.hidden = false;
+  tokenUsageText.textContent = `${formatTokenCount(usage.totalTokens)} tokens`;
+  const details = [
+    ["输入 / 上下文", usage.promptTokens, "tokens"],
+    ["输出", usage.completionTokens, "tokens"],
+    ["总量", usage.totalTokens, "tokens"],
+    ["推理", usage.reasoningTokens, "tokens"],
+    ["缓存命中", usage.cachedPromptTokens, "tokens"],
+    ["缓存未命中", usage.uncachedPromptTokens, "tokens"],
+    ["图片", usage.imageTokens, "tokens"],
+    ["音频", usage.audioTokens, "tokens"],
+    ["视频", usage.videoTokens, "tokens"],
+    ["搜索调用", usage.webSearchToolUsage, "次"],
+    ["搜索页面", usage.webSearchPageUsage, "页"]
+  ].filter(([, value]) => Number.isFinite(value));
+  tokenUsageDetails.innerHTML = details.map(([label, value, unit]) => (
+    `<div class="token-usage-details-row"><span>${label}</span><strong>${formatTokenCount(value)} ${unit}</strong></div>`
+  )).join("");
+}
+
+function markCurrentUsageStale() {
+  const session = getCurrentSession();
+  if (session.messages.length === 0) {
+    session.contextUsage = null;
+    session.contextUsageState = "empty";
+  } else {
+    session.contextUsageState = "stale";
+  }
+  updateTokenUsageDisplay();
 }
 
 function getLatestEditableUserMessageIndex(messages = settings.messages) {
@@ -340,8 +333,8 @@ function normalizeImageAttachments(value) {
       && SUPPORTED_IMAGE_MIME_TYPES.has(image.mimeType)
     ))
     .slice(0, MAX_IMAGES_PER_MESSAGE)
-    .map((image, index) => ({
-      id: typeof image.id === "string" && image.id ? image.id : `image-${Date.now()}-${index}`,
+    .map((image) => ({
+      id: typeof image.id === "string" && image.id ? image.id : `image-${crypto.randomUUID()}`,
       name: typeof image.name === "string" ? image.name : "clipboard-image",
       mimeType: image.mimeType,
       size: Number.isFinite(image.size) ? image.size : 0,
@@ -389,6 +382,8 @@ function createSession(messages = []) {
     id: `session-${now}-${Math.random().toString(36).slice(2, 8)}`,
     title: buildSessionTitle(messages),
     messages,
+    contextUsage: null,
+    contextUsageState: "empty",
     createdAt: now,
     updatedAt: now
   };
@@ -406,17 +401,31 @@ function buildSessionTitle(messages) {
 }
 
 function normalizeSessions(value, legacyMessages) {
-  const sessions = Array.isArray(value)
+  const normalized = Array.isArray(value)
     ? value
         .filter((session) => session && typeof session.id === "string")
-        .map((session) => ({
-          id: session.id,
-          title: session.title || buildSessionTitle(Array.isArray(session.messages) ? session.messages : []),
-          messages: Array.isArray(session.messages) ? session.messages.map(normalizeMessage) : [],
-          createdAt: Number.isFinite(session.createdAt) ? session.createdAt : Date.now(),
-          updatedAt: Number.isFinite(session.updatedAt) ? session.updatedAt : Date.now()
-        }))
+        .map((session) => {
+          const messages = Array.isArray(session.messages) ? session.messages.map(normalizeMessage) : [];
+          const contextUsage = normalizeUsage(session.contextUsage, session.contextUsage)
+            || [...messages].reverse().map((message) => normalizeUsage(message?.usage, message?.usage)).find(Boolean)
+            || null;
+          const inferredState = messages.length === 0
+            ? "empty"
+            : (Number.isFinite(contextUsage?.promptTokens) ? "measured" : "unavailable");
+          return {
+            id: session.id,
+            title: session.title || buildSessionTitle(messages),
+            messages,
+            contextUsage,
+            contextUsageState: ["measured", "stale", "unavailable", "empty"].includes(session.contextUsageState)
+              ? session.contextUsageState
+              : inferredState,
+            createdAt: Number.isFinite(session.createdAt) ? session.createdAt : Date.now(),
+            updatedAt: Number.isFinite(session.updatedAt) ? session.updatedAt : Date.now()
+          };
+        })
     : [];
+  const sessions = [...new Map(normalized.map((session) => [session.id, session])).values()];
 
   if (sessions.length > 0) {
     return sessions;
@@ -449,11 +458,7 @@ function syncCurrentSessionMessages() {
 }
 
 async function saveSessions() {
-  await storageSet({
-    [STORAGE_KEYS.sessions]: settings.sessions,
-    [STORAGE_KEYS.currentSessionId]: settings.currentSessionId,
-    [STORAGE_KEYS.messages]: settings.messages
-  });
+  await persistSecureState();
 }
 
 async function saveCurrentSession() {
@@ -547,15 +552,86 @@ function closeHistoryNotice() {
   historyNoticeText.textContent = "";
 }
 
+function showSettingsNotice(element, message) {
+  element.textContent = message;
+  element.hidden = !message;
+}
+
+function clearCustomProviderForm() {
+  customProviderIdInput.value = "";
+  customProviderNameInput.value = "";
+  customProviderEndpointInput.value = "";
+  customProviderApiKeyInput.value = "";
+  customProviderModelsInput.value = "";
+  saveCustomProviderButton.textContent = "添加提供商";
+  cancelCustomProviderButton.hidden = true;
+  showSettingsNotice(customProviderNotice, "");
+}
+
+function renderCustomProviderList() {
+  customProviderList.innerHTML = "";
+  const providers = Object.values(settings.providerConfigs).filter((config) => config.type === "custom");
+  if (providers.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "settings-help";
+    empty.textContent = "尚未添加自定义提供商。";
+    customProviderList.appendChild(empty);
+    return;
+  }
+
+  for (const provider of providers) {
+    const item = document.createElement("div");
+    item.className = "custom-provider-item";
+    const summary = document.createElement("div");
+    summary.className = "custom-provider-summary";
+    const name = document.createElement("span");
+    name.className = "custom-provider-name";
+    name.textContent = `${provider.label} · ${provider.models.length} 个模型`;
+    const endpoint = document.createElement("span");
+    endpoint.className = "custom-provider-endpoint";
+    endpoint.textContent = provider.endpoint;
+    endpoint.title = provider.endpoint;
+    summary.append(name, endpoint);
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "custom-provider-edit";
+    editButton.dataset.providerId = provider.id;
+    editButton.textContent = "编辑";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "custom-provider-delete";
+    deleteButton.dataset.providerId = provider.id;
+    deleteButton.textContent = "删除";
+    item.append(summary, editButton, deleteButton);
+    customProviderList.appendChild(item);
+  }
+}
+
+async function removeOriginPermissionIfUnused(permissionOrigin) {
+  if (!permissionOrigin || !globalThis.chrome?.permissions) return;
+  const stillUsed = Object.values(settings.providerConfigs).some((config) => (
+    config.type === "custom" && config.permissionOrigin === permissionOrigin
+  ));
+  if (!stillUsed) await chrome.permissions.remove({ origins: [permissionOrigin] });
+}
+
 function openSettings() {
   closeHistory(false);
   closeModelMenu();
+  deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
+  mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
+  systemPromptInput.value = settings.systemPrompt;
+  renderCustomProviderList();
   settingsPanel.classList.add("open");
   themeSelect.focus();
 }
 
 function closeSettings(restoreFocus = true) {
   settingsPanel.classList.remove("open");
+  deepseekApiKeyInput.value = "";
+  mimoApiKeyInput.value = "";
+  clearCustomProviderForm();
   if (restoreFocus) {
     settingsButton.focus();
   }
@@ -1020,175 +1096,152 @@ function appendMessage(role, content, options = {}) {
   return body;
 }
 
-function buildApiMessage(message, provider, config) {
-  const content = getMessageText(message);
-  const images = normalizeImageAttachments(message.images);
-
-  if (message.role === "user" && images.length > 0 && isMimoMultimodalConfig(provider, config)) {
-    return {
-      role: message.role,
-      content: [
-        { type: "text", text: content.trim() || DEFAULT_IMAGE_PROMPT },
-        ...images.map((image) => ({
-          type: "image_url",
-          image_url: {
-            url: image.dataUrl
-          }
-        }))
-      ]
-    };
-  }
-
-  return {
-    role: message.role,
-    content
-  };
-}
-
-function buildApiMessages(
-  messages = settings.messages,
-  includeSystemPrompt = true,
-  provider = getActiveProvider(),
-  config = getActiveProviderConfig()
-) {
-  const apiMessages = messages.map((message) => buildApiMessage(message, provider, config));
-
-  if (includeSystemPrompt && settings.systemPrompt.trim()) {
-    return [
-      { role: "system", content: settings.systemPrompt.trim() },
-      ...apiMessages
-    ];
-  }
-
-  return apiMessages;
-}
-
 async function saveMessages() {
   await saveCurrentSession();
 }
 
 async function loadSettings() {
-  const data = await storageGet(Object.values(STORAGE_KEYS));
-  const sessions = normalizeSessions(data[STORAGE_KEYS.sessions], data[STORAGE_KEYS.messages]);
-  const currentSessionId = sessions.some((session) => session.id === data[STORAGE_KEYS.currentSessionId])
-    ? data[STORAGE_KEYS.currentSessionId]
+  const preferenceData = await storageGet(Object.values(PREFERENCE_KEYS));
+  const legacyData = await readLegacyStorage();
+  let secureState = await readSecureState();
+  let migrated = false;
+
+  if (!secureState) {
+    const sessions = normalizeSessions(legacyData.deepseekSessions, legacyData.deepseekMessages);
+    const currentSessionId = sessions.some((session) => session.id === legacyData.deepseekCurrentSessionId)
+      ? legacyData.deepseekCurrentSessionId
+      : sessions[0].id;
+    const providerConfigs = normalizeProviderConfigs(
+      legacyData.modelProviderConfigs,
+      legacyData.deepseekApiKey || "",
+      legacyData.deepseekModel || ""
+    );
+    await writeSecureState({
+      config: {
+        providerConfigs,
+        systemPrompt: typeof legacyData.deepseekSystemPrompt === "string" ? legacyData.deepseekSystemPrompt : ""
+      },
+      sessions,
+      currentSessionId
+    });
+    secureState = await readSecureState();
+    const expectedImageCount = sessions.reduce((total, session) => (
+      total + session.messages.reduce((messageTotal, message) => messageTotal + (message.images?.length || 0), 0)
+    ), 0);
+    const migratedImageCount = (secureState?.sessions || []).reduce((total, session) => (
+      total + session.messages.reduce((messageTotal, message) => messageTotal + (message.images?.length || 0), 0)
+    ), 0);
+    if (
+      !secureState
+      || secureState.sessions.length !== sessions.length
+      || migratedImageCount !== expectedImageCount
+      || secureState.config.systemPrompt !== (legacyData.deepseekSystemPrompt || "")
+      || secureState.config.providerConfigs.deepseek.apiKey !== providerConfigs.deepseek.apiKey
+    ) {
+      throw new Error("旧版数据迁移验证失败，明文数据仍已保留，请重新打开侧边栏后重试。");
+    }
+    migrated = true;
+  }
+
+  const providerConfigs = normalizeProviderConfigs(secureState.config.providerConfigs);
+  const sessions = normalizeSessions(secureState.sessions);
+  const availableProviderIds = new Set(getProviderProfiles(providerConfigs).map((provider) => provider.id));
+  const requestedProvider = preferenceData[PREFERENCE_KEYS.activeProvider]
+    || legacyData.activeModelProvider
+    || DEFAULT_PROVIDER_ID;
+  const activeProvider = availableProviderIds.has(requestedProvider) ? requestedProvider : DEFAULT_PROVIDER_ID;
+  const preferredModel = preferenceData[PREFERENCE_KEYS.activeModel];
+  if (
+    typeof preferredModel === "string"
+    && getProviderProfile(providerConfigs, activeProvider).models.some((model) => model.id === preferredModel)
+  ) {
+    providerConfigs[activeProvider].model = preferredModel;
+  }
+  const currentSessionId = sessions.some((session) => session.id === secureState.currentSessionId)
+    ? secureState.currentSessionId
     : sessions[0].id;
-  const activeProvider = MODEL_PROVIDERS[data[STORAGE_KEYS.activeProvider]]
-    ? data[STORAGE_KEYS.activeProvider]
-    : DEFAULT_PROVIDER_ID;
-  const providerConfigs = normalizeProviderConfigs(
-    data[STORAGE_KEYS.providerConfigs],
-    data[STORAGE_KEYS.legacyApiKey] || "",
-    data[STORAGE_KEYS.legacyModel] || ""
-  );
 
   settings = {
     activeProvider,
     providerConfigs,
-    mimoWebSearchMode: normalizeMimoWebSearchMode(data[STORAGE_KEYS.mimoWebSearchMode]),
-    theme: data[STORAGE_KEYS.theme] || DEFAULT_THEME,
-    systemPrompt: data[STORAGE_KEYS.systemPrompt] || "",
+    mimoWebSearchMode: normalizeMimoWebSearchMode(
+      preferenceData[PREFERENCE_KEYS.mimoWebSearchMode] ?? legacyData.mimoWebSearchMode
+    ),
+    theme: preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme || DEFAULT_THEME,
+    systemPrompt: typeof secureState.config.systemPrompt === "string" ? secureState.config.systemPrompt : "",
     messages: [],
     sessions,
     currentSessionId
   };
 
+  refreshProviderRegistry();
   syncCurrentSessionMessages();
 
-  deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
-  deepseekEndpointInput.value = settings.providerConfigs.deepseek.apiUrl;
-  mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
-  mimoEndpointInput.value = settings.providerConfigs.mimo.apiUrl;
   themeSelect.value = settings.theme;
   systemPromptInput.value = settings.systemPrompt;
   mimoWebSearchModeSelect.value = settings.mimoWebSearchMode;
+  renderCustomProviderList();
   applyTheme(settings.theme);
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
-  await Promise.all([
-    saveSessions(),
-    storageSet({
-      [STORAGE_KEYS.activeProvider]: settings.activeProvider,
-      [STORAGE_KEYS.providerConfigs]: settings.providerConfigs,
-      [STORAGE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode
-    })
-  ]);
+  await Promise.all([persistSecureState(), persistPreferences()]);
+  await removeLegacyStorage();
+  if (migrated) await garbageCollectSecureStore();
   renderMessages();
 }
 
-function parseStreamErrorText(text, status) {
-  try {
-    const payload = JSON.parse(text);
-    return payload.error?.message || payload.message || `请求失败，状态码 ${status}`;
-  } catch {
-    return text || `请求失败，状态码 ${status}`;
-  }
-}
-
 function buildProviderRequestBody(provider, config, options = {}) {
-  const stream = options.stream !== false;
-  const body = {
-    model: config.model,
-    messages: buildApiMessages(
-      options.messages || settings.messages,
-      options.includeSystemPrompt !== false,
-      provider,
-      config
-    ),
-    stream
-  };
-
-  if (stream && provider.includeStreamUsage) {
-    body.stream_options = {
-      include_usage: true
-    };
-  }
-
-  if (provider.supportsThinking) {
-    body.thinking = {
-      type: "enabled"
-    };
-  }
-
-  if (options.maxTokens) {
-    body.max_tokens = options.maxTokens;
-  }
-
-  if (provider.id === "mimo" && options.includeWebSearch !== false && settings.mimoWebSearchMode !== "off") {
-    body.tools = [
-      {
-        type: "web_search",
-        max_keyword: 3,
-        force_search: settings.mimoWebSearchMode === "force",
-        limit: 1
-      }
-    ];
-  }
-
-  return body;
+  return buildChatCompletionRequest({
+    profile: provider,
+    messages: options.messages || settings.messages,
+    systemPrompt: options.includeSystemPrompt === false ? "" : settings.systemPrompt,
+    stream: options.stream !== false,
+    maxOutputTokens: options.maxTokens,
+    includeWebSearch: options.includeWebSearch !== false,
+    mimoWebSearchMode: settings.mimoWebSearchMode,
+    overrides: options.overrides || {}
+  });
 }
 
-function buildAuthHeaders(provider, config) {
-  return provider.authHeader === "api-key"
-    ? { "api-key": config.apiKey }
-    : { "Authorization": `Bearer ${config.apiKey}` };
+async function rememberCustomCapability(providerId, key, value) {
+  const config = settings.providerConfigs[providerId];
+  if (config?.type !== "custom" || config.capabilityCache?.[key] === value) return;
+  config.capabilityCache = { ...config.capabilityCache, [key]: value };
+  refreshProviderRegistry();
+  await persistSecureState();
+}
+
+async function fetchChatCompletion(provider, body) {
+  return fetch(provider.endpoint, {
+    method: "POST",
+    headers: {
+      ...buildAuthHeaders(provider),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
 }
 
 async function callModelStream(onDelta) {
-  const provider = getActiveProvider();
-  const config = getActiveProviderConfig();
-  const authHeaders = buildAuthHeaders(provider, config);
-  const response = await fetch(config.apiUrl, {
-    method: "POST",
-    headers: {
-      ...authHeaders,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(buildProviderRequestBody(provider, config))
-  });
+  let provider = getActiveProvider();
+  let body = buildProviderRequestBody(provider, getActiveProviderConfig());
+  let response = await fetchChatCompletion(provider, body);
 
   if (!response.ok) {
-    throw new Error(parseStreamErrorText(await response.text(), response.status));
+    const error = parseApiError(await response.text(), response.status);
+    if (provider.type === "custom" && body.stream_options && isExplicitUnknownParameterError(error, "stream_options")) {
+      await rememberCustomCapability(provider.id, "streamUsage", "implicit");
+      provider = getActiveProvider();
+      body = buildProviderRequestBody(provider, getActiveProviderConfig(), {
+        overrides: { streamUsage: "implicit" }
+      });
+      response = await fetchChatCompletion(provider, body);
+      if (!response.ok) throw parseApiError(await response.text(), response.status);
+    } else {
+      throw error;
+    }
+  } else if (provider.type === "custom" && body.stream_options) {
+    await rememberCustomCapability(provider.id, "streamUsage", "include_usage");
   }
 
   if (!response.body) {
@@ -1198,53 +1251,12 @@ async function callModelStream(onDelta) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let content = "";
-  let reasoningContent = "";
-  let usage = null;
+  const accumulator = createStreamAccumulator({ providerId: provider.id, model: provider.model });
 
   function handleEventData(data) {
-    const value = data.trim();
-
-    if (!value) {
-      return false;
-    }
-
-    if (value === "[DONE]") {
-      return true;
-    }
-
-    let payload;
-
-    try {
-      payload = JSON.parse(value);
-    } catch {
-      throw new Error(provider.parseErrorMessage);
-    }
-
-    if (payload.usage) {
-      usage = normalizeUsage(payload.usage);
-    }
-
-    const delta = payload.choices?.[0]?.delta || {};
-    const nextReasoning = delta.reasoning_content || "";
-    const nextContent = delta.content || "";
-
-    if (nextReasoning) {
-      reasoningContent += nextReasoning;
-    }
-
-    if (nextContent) {
-      content += nextContent;
-    }
-
-    if (nextReasoning || nextContent) {
-      onDelta({
-        content,
-        reasoningContent
-      });
-    }
-
-    return false;
+    const state = accumulator.push(data);
+    if (state.changed) onDelta({ content: state.content, reasoningContent: state.reasoningContent });
+    return state.done;
   }
 
   function processBuffer() {
@@ -1295,38 +1307,60 @@ async function callModelStream(onDelta) {
     }
   }
 
-  if (!content) {
+  const result = accumulator.result();
+  if (!result.content) {
     throw new Error(provider.emptyResponseMessage);
   }
 
   return {
-    content,
-    reasoningContent,
-    usage
+    content: result.content,
+    reasoningContent: result.reasoningContent,
+    usage: result.usage
   };
 }
 
 async function callModelOnce(messages, options = {}) {
-  const provider = getActiveProvider();
+  let provider = getActiveProvider();
   const config = getActiveProviderConfig();
-  const authHeaders = buildAuthHeaders(provider, config);
-  const response = await fetch(config.apiUrl, {
-    method: "POST",
-    headers: {
-      ...authHeaders,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(buildProviderRequestBody(provider, config, {
-      messages,
-      stream: false,
-      includeSystemPrompt: false,
-      includeWebSearch: false,
-      maxTokens: options.maxTokens
-    }))
+  let maxOutputField = provider.capabilities.maxOutputField === "auto"
+    ? "max_tokens"
+    : provider.capabilities.maxOutputField;
+  let body = buildProviderRequestBody(provider, config, {
+    messages,
+    stream: false,
+    includeSystemPrompt: false,
+    includeWebSearch: false,
+    maxTokens: options.maxTokens,
+    overrides: { maxOutputField }
   });
+  let response = await fetchChatCompletion(provider, body);
 
   if (!response.ok) {
-    throw new Error(parseStreamErrorText(await response.text(), response.status));
+    const error = parseApiError(await response.text(), response.status);
+    if (
+      provider.type === "custom"
+      && maxOutputField === "max_tokens"
+      && isExplicitUnknownParameterError(error, "max_tokens")
+    ) {
+      maxOutputField = "max_completion_tokens";
+      body = buildProviderRequestBody(provider, config, {
+        messages,
+        stream: false,
+        includeSystemPrompt: false,
+        includeWebSearch: false,
+        maxTokens: options.maxTokens,
+        overrides: { maxOutputField }
+      });
+      response = await fetchChatCompletion(provider, body);
+      if (!response.ok) throw parseApiError(await response.text(), response.status);
+    } else {
+      throw error;
+    }
+  }
+
+  if (provider.type === "custom" && Number.isFinite(options.maxTokens)) {
+    await rememberCustomCapability(provider.id, "maxOutputField", maxOutputField);
+    provider = getActiveProvider();
   }
 
   const payload = await response.json();
@@ -1340,7 +1374,7 @@ async function callModelOnce(messages, options = {}) {
 
   return {
     content,
-    usage: normalizeUsage(payload.usage)
+    usage: normalizeUsage(payload.usage, { providerId: provider.id, model: provider.model })
   };
 }
 
@@ -1389,7 +1423,7 @@ async function compressSessionContext(sessionId, button) {
 
   const provider = getActiveProvider();
   const providerConfig = getActiveProviderConfig();
-  if (!providerConfig.apiKey) {
+  if (!providerConfig.apiKey && provider.type === "builtin") {
     openSettings();
     appendMessage("system", `请先配置当前模型 ${provider.label} API Key。`);
     return;
@@ -1413,6 +1447,7 @@ async function compressSessionContext(sessionId, button) {
       ...recentMessages
     ];
     session.title = buildSessionTitle(session.messages);
+    session.contextUsageState = "stale";
     session.updatedAt = Date.now();
 
     if (session.id === settings.currentSessionId) {
@@ -1420,6 +1455,7 @@ async function compressSessionContext(sessionId, button) {
     }
 
     await saveSessions();
+    await garbageCollectSecureStore();
 
     if (session.id === settings.currentSessionId) {
       renderMessages();
@@ -1515,8 +1551,8 @@ async function addClipboardImages(files) {
   }
 
   try {
-    const nextImages = await Promise.all(acceptedFiles.map(async (file, index) => ({
-      id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${index}`,
+    const nextImages = await Promise.all(acceptedFiles.map(async (file) => ({
+      id: `image-${crypto.randomUUID()}`,
       name: file.name || "clipboard-image",
       mimeType: file.type,
       size: file.size,
@@ -1539,7 +1575,7 @@ function validateOutgoingMessage(images) {
     return false;
   }
 
-  if (!providerConfig.apiKey) {
+  if (!providerConfig.apiKey && provider.type === "builtin") {
     openSettings();
     appendMessage("system", `请先在高级模型 API 中保存 ${provider.label} API Key。`);
     return false;
@@ -1556,6 +1592,8 @@ async function requestReplyForCurrentMessages() {
 
   const assistantMessage = appendMessage("assistant", "", { streaming: true });
   sendButton.disabled = true;
+  settingsButton.disabled = true;
+  historyButton.disabled = true;
   closeModelMenu();
   modelSwitchButton.disabled = true;
   updateModelSwitchLabel("请求中");
@@ -1583,15 +1621,21 @@ async function requestReplyForCurrentMessages() {
       reasoningContent: reply.reasoningContent,
       usage: reply.usage
     });
+    const session = getCurrentSession();
+    session.contextUsage = reply.usage;
+    session.contextUsageState = reply.usage?.promptTokens != null ? "measured" : "unavailable";
     await saveMessages();
     updateModelSwitchLabel();
     updateTokenUsageDisplay(reply.usage);
   } catch (error) {
     errorMessage = `请求失败：${error.message}`;
+    getCurrentSession().contextUsageState = "stale";
     updateModelSwitchLabel("请求失败");
   } finally {
     isRequestInFlight = false;
     sendButton.disabled = false;
+    settingsButton.disabled = false;
+    historyButton.disabled = false;
     modelSwitchButton.disabled = false;
     renderMessages();
     if (errorMessage) {
@@ -1614,6 +1658,13 @@ modelSwitchButton.addEventListener("click", () => {
   toggleModelMenu();
 });
 
+tokenUsageButton.addEventListener("click", () => {
+  if (!tokenUsageDetails.innerHTML) return;
+  const open = tokenUsageDetails.hidden;
+  tokenUsageDetails.hidden = !open;
+  tokenUsageButton.setAttribute("aria-expanded", String(open));
+});
+
 modelMenu.addEventListener("click", async (event) => {
   const option = event.target.closest(".model-menu-option");
   if (!option) return;
@@ -1633,11 +1684,9 @@ modelMenu.addEventListener("click", async (event) => {
       model
     }
   });
-
-  await storageSet({
-    [STORAGE_KEYS.activeProvider]: settings.activeProvider,
-    [STORAGE_KEYS.providerConfigs]: settings.providerConfigs
-  });
+  refreshProviderRegistry();
+  markCurrentUsageStale();
+  await Promise.all([persistSecureState(), persistPreferences()]);
 
   updateModelSwitchLabel();
   closeModelMenu();
@@ -1654,6 +1703,12 @@ document.addEventListener("click", (event) => {
   }
 
   closeModelMenu();
+});
+
+document.addEventListener("click", (event) => {
+  if (tokenUsageDetails.hidden || tokenUsageDetails.contains(event.target) || tokenUsageButton.contains(event.target)) return;
+  tokenUsageDetails.hidden = true;
+  tokenUsageButton.setAttribute("aria-expanded", "false");
 });
 
 historyButton.addEventListener("click", () => {
@@ -1767,34 +1822,31 @@ historyList.addEventListener("click", async (event) => {
 
   syncCurrentSessionMessages();
   await saveSessions();
+  await garbageCollectSecureStore();
   renderMessages();
   updateTokenUsageDisplay();
   renderHistory();
 });
 
 saveSettingsButton.addEventListener("click", async () => {
+  const previousSystemPrompt = settings.systemPrompt;
   settings.providerConfigs = normalizeProviderConfigs({
+    ...settings.providerConfigs,
     deepseek: {
       apiKey: deepseekApiKeyInput.value.trim(),
-      apiUrl: deepseekEndpointInput.value.trim(),
       model: settings.providerConfigs.deepseek.model
     },
     mimo: {
       apiKey: mimoApiKeyInput.value.trim(),
-      apiUrl: mimoEndpointInput.value.trim(),
       model: settings.providerConfigs.mimo.model
     }
   });
   settings.theme = themeSelect.value;
   settings.systemPrompt = systemPromptInput.value.trim();
   settings.mimoWebSearchMode = normalizeMimoWebSearchMode(mimoWebSearchModeSelect.value);
-
-  await storageSet({
-    [STORAGE_KEYS.providerConfigs]: settings.providerConfigs,
-    [STORAGE_KEYS.theme]: settings.theme,
-    [STORAGE_KEYS.systemPrompt]: settings.systemPrompt,
-    [STORAGE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode
-  });
+  refreshProviderRegistry();
+  if (previousSystemPrompt !== settings.systemPrompt) markCurrentUsageStale();
+  await Promise.all([persistSecureState(), persistPreferences()]);
 
   applyTheme(settings.theme);
   updateModelSwitchLabel();
@@ -1803,9 +1855,12 @@ saveSettingsButton.addEventListener("click", async () => {
 });
 
 clearChatButton.addEventListener("click", async () => {
-  const confirmed = window.confirm("确定要重置设置吗？API Key、Endpoint、主题、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
+  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
   if (!confirmed) return;
 
+  const customOrigins = [...new Set(Object.values(settings.providerConfigs)
+    .filter((config) => config.type === "custom")
+    .map((config) => config.permissionOrigin))];
   settings.activeProvider = DEFAULT_PROVIDER_ID;
   settings.providerConfigs = createDefaultProviderConfigs();
   settings.theme = DEFAULT_THEME;
@@ -1813,25 +1868,138 @@ clearChatButton.addEventListener("click", async () => {
   settings.mimoWebSearchMode = DEFAULT_MIMO_WEB_SEARCH_MODE;
 
   deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
-  deepseekEndpointInput.value = settings.providerConfigs.deepseek.apiUrl;
   mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
-  mimoEndpointInput.value = settings.providerConfigs.mimo.apiUrl;
   themeSelect.value = settings.theme;
   systemPromptInput.value = settings.systemPrompt;
   mimoWebSearchModeSelect.value = settings.mimoWebSearchMode;
-
-  await storageSet({
-    [STORAGE_KEYS.activeProvider]: settings.activeProvider,
-    [STORAGE_KEYS.providerConfigs]: settings.providerConfigs,
-    [STORAGE_KEYS.theme]: settings.theme,
-    [STORAGE_KEYS.systemPrompt]: settings.systemPrompt,
-    [STORAGE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode
-  });
+  clearCustomProviderForm();
+  refreshProviderRegistry();
+  markCurrentUsageStale();
+  await Promise.all([persistSecureState(), persistPreferences()]);
+  if (globalThis.chrome?.permissions && customOrigins.length > 0) {
+    await chrome.permissions.remove({ origins: customOrigins });
+  }
 
   applyTheme(settings.theme);
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
   renderModelMenu();
+  renderCustomProviderList();
+});
+
+saveCustomProviderButton.addEventListener("click", async () => {
+  showSettingsNotice(customProviderNotice, "");
+  const existingId = customProviderIdInput.value;
+  const existing = settings.providerConfigs[existingId];
+  let provider;
+  try {
+    provider = normalizeCustomProvider({
+      ...existing,
+      label: customProviderNameInput.value,
+      endpoint: customProviderEndpointInput.value,
+      apiKey: customProviderApiKeyInput.value,
+      models: customProviderModelsInput.value,
+      model: existing?.model,
+      capabilityCache: existing?.endpoint === customProviderEndpointInput.value.trim()
+        ? existing.capabilityCache
+        : undefined
+    }, existingId);
+  } catch (error) {
+    showSettingsNotice(customProviderNotice, error.message);
+    return;
+  }
+
+  let granted = false;
+  try {
+    granted = await chrome.permissions.request({ origins: [provider.permissionOrigin] });
+  } catch (error) {
+    showSettingsNotice(customProviderNotice, `无法申请 ${provider.origin} 的访问权限：${error.message}`);
+    return;
+  }
+  if (!granted) {
+    showSettingsNotice(customProviderNotice, `未授予 ${provider.origin} 的访问权限。配置未保存，完整对话上下文和 API Key 均不会发送。`);
+    return;
+  }
+
+  const previousOrigin = existing?.permissionOrigin;
+  settings.providerConfigs = normalizeProviderConfigs({
+    ...settings.providerConfigs,
+    [provider.id]: provider
+  });
+  refreshProviderRegistry();
+  await Promise.all([persistSecureState(), persistPreferences()]);
+  if (previousOrigin && previousOrigin !== provider.permissionOrigin) {
+    await removeOriginPermissionIfUnused(previousOrigin);
+  }
+  clearCustomProviderForm();
+  renderCustomProviderList();
+  updateModelSwitchLabel();
+});
+
+cancelCustomProviderButton.addEventListener("click", clearCustomProviderForm);
+
+customProviderList.addEventListener("click", async (event) => {
+  const editButton = event.target.closest(".custom-provider-edit");
+  const deleteButton = event.target.closest(".custom-provider-delete");
+  const providerId = editButton?.dataset.providerId || deleteButton?.dataset.providerId;
+  const provider = settings.providerConfigs[providerId];
+  if (!provider || provider.type !== "custom") return;
+
+  if (editButton) {
+    customProviderIdInput.value = provider.id;
+    customProviderNameInput.value = provider.label;
+    customProviderEndpointInput.value = provider.endpoint;
+    customProviderApiKeyInput.value = provider.apiKey;
+    customProviderModelsInput.value = provider.models.map((model) => model.id).join("\n");
+    saveCustomProviderButton.textContent = "保存提供商";
+    cancelCustomProviderButton.hidden = false;
+    showSettingsNotice(customProviderNotice, "");
+    customProviderNameInput.focus();
+    return;
+  }
+
+  if (!window.confirm(`确定删除自定义提供商“${provider.label}”吗？历史对话不会删除。`)) return;
+  delete settings.providerConfigs[provider.id];
+  if (settings.activeProvider === provider.id) settings.activeProvider = DEFAULT_PROVIDER_ID;
+  refreshProviderRegistry();
+  await Promise.all([persistSecureState(), persistPreferences()]);
+  await removeOriginPermissionIfUnused(provider.permissionOrigin);
+  if (customProviderIdInput.value === provider.id) clearCustomProviderForm();
+  renderCustomProviderList();
+  updateModelSwitchLabel();
+});
+
+cleanupCacheButton.addEventListener("click", async () => {
+  cleanupCacheButton.disabled = true;
+  showSettingsNotice(storageNotice, "正在检查孤儿缓存……");
+  try {
+    const result = await garbageCollectSecureStore();
+    showSettingsNotice(
+      storageNotice,
+      `已删除 ${result.sessions} 个孤儿会话、${result.images} 张孤儿图片和 ${result.temporary} 条临时记录，释放约 ${formatReleasedBytes(result.releasedBytes)}。`
+    );
+  } catch (error) {
+    showSettingsNotice(storageNotice, `清理失败：${error.message}`);
+  } finally {
+    cleanupCacheButton.disabled = false;
+  }
+});
+
+clearAllDataButton.addEventListener("click", async () => {
+  if (isRequestInFlight) {
+    showSettingsNotice(storageNotice, "请等待当前请求完成后再清空全部本地数据。");
+    return;
+  }
+  const confirmed = window.confirm("这会永久删除全部 API Key、自定义提供商、系统提示词、历史对话和图片。确定继续吗？");
+  if (!confirmed) return;
+  clearAllDataButton.disabled = true;
+  try {
+    await clearAllLocalData();
+    location.reload();
+  } catch (error) {
+    showSettingsNotice(storageNotice, `清空失败：${error.message}`);
+    clearAllDataButton.disabled = false;
+  }
 });
 
 composerResizeHandle.addEventListener("pointerdown", (event) => {
@@ -1928,8 +2096,10 @@ messagesEl.addEventListener("submit", async (event) => {
     ...settings.messages.slice(0, messageIndex),
     { role: "user", content, images }
   ];
+  markCurrentUsageStale();
   editingMessageIndex = -1;
   await saveMessages();
+  await garbageCollectSecureStore();
   updateTokenUsageDisplay();
   await requestReplyForCurrentMessages();
 });
@@ -1982,6 +2152,7 @@ chatForm.addEventListener("submit", async (event) => {
 
   const userMessage = { role: "user", content, images };
   settings.messages.push(userMessage);
+  markCurrentUsageStale();
   appendMessage("user", content, { images });
   messageInput.value = "";
   pendingImages = [];
@@ -1993,4 +2164,6 @@ chatForm.addEventListener("submit", async (event) => {
 loadSettings().catch((error) => {
   updateModelSwitchLabel("初始化失败");
   appendMessage("system", error.message);
+  showSettingsNotice(storageNotice, `${error.message} 如无法恢复，请使用“清空全部本地数据”重新初始化。`);
+  settingsPanel.classList.add("open");
 });

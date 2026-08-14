@@ -610,6 +610,115 @@ button {
   color: var(--primary-text);
 }
 
+.endpoint-value {
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: var(--surface-soft);
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-help,
+.settings-notice {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-notice {
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.settings-notice[hidden] {
+  display: none;
+}
+
+.custom-provider-list {
+  display: grid;
+  gap: 7px;
+}
+
+.custom-provider-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: var(--surface-soft);
+}
+
+.custom-provider-summary {
+  min-width: 0;
+}
+
+.custom-provider-name,
+.custom-provider-endpoint {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-provider-name {
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.custom-provider-endpoint {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.custom-provider-edit,
+.custom-provider-delete,
+.inline-actions button {
+  min-height: 32px;
+  border-radius: 8px;
+  padding: 0 9px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.custom-provider-edit:hover,
+.inline-actions .secondary:hover {
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+}
+
+.custom-provider-delete,
+.inline-actions .danger {
+  background: color-mix(in srgb, #dc2626 10%, var(--surface));
+  color: #b91c1c;
+}
+
+.custom-provider-delete:hover,
+.inline-actions .danger:hover {
+  background: color-mix(in srgb, #dc2626 17%, var(--surface));
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.data-settings > .settings-help,
+.data-settings > .settings-notice,
+.data-settings > .inline-actions {
+  margin: 0 10px 10px;
+}
+
 .message.user:has(.message-actions) {
   margin-right: 0;
   margin-bottom: 32px;
@@ -1225,9 +1334,50 @@ button {
 
 .token-usage {
   flex: 0 0 auto;
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: transparent;
   color: var(--text-subtle);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.token-usage:hover,
+.token-usage[aria-expanded="true"] {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.token-usage-details {
+  position: fixed;
+  bottom: 44px;
+  left: 10px;
+  z-index: 4;
+  display: grid;
+  gap: 5px;
+  width: min(280px, calc(100vw - 20px));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 18px 44px var(--shadow);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.token-usage-details[hidden] {
+  display: none;
+}
+
+.token-usage-details-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.token-usage-details-row span:first-child {
+  color: var(--text-muted);
 }
 
 .statusbar .icon-button {
@@ -1246,7 +1396,9 @@ button {
 #sendButton:disabled,
 .settings-actions button:disabled,
 .history-compress:disabled,
-.model-switch:disabled {
+.model-switch:disabled,
+.statusbar button:disabled,
+.inline-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
