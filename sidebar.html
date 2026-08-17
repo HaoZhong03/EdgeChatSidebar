@@ -30,13 +30,14 @@
             <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>
           </label>
           <label class="field">
-            <span>小米 MiMo 联网搜索</span>
-            <select id="mimoWebSearchModeSelect">
+            <span>DeepSeek / 小米 MiMo 联网搜索</span>
+            <select id="webSearchModeSelect">
               <option value="off">关闭</option>
               <option value="auto">自动判断</option>
               <option value="force">强制搜索</option>
             </select>
           </label>
+          <p class="settings-help">此开关由两个内置提供商共用；只会作用于当前选中的 DeepSeek 或小米 MiMo 模型。</p>
           <details id="apiSettingsDetails" class="api-settings">
             <summary>高级模型 API</summary>
             <div class="api-provider">

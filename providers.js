@@ -1,5 +1,9 @@
 export const DEFAULT_PROVIDER_ID = "deepseek";
 export const MIMO_MULTIMODAL_MODEL = "mimo-v2.5";
+export const DEEPSEEK_ANTHROPIC_ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages";
+
+const DEEPSEEK_WEB_SEARCH_MAX_TOKENS = 8192;
+const DEEPSEEK_WEB_SEARCH_THINKING_TOKENS = 4096;
 
 export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
   deepseek: Object.freeze({
@@ -18,7 +22,7 @@ export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
       streamUsage: "include_usage",
       thinking: "enabled",
       imageInput: false,
-      webSearch: false
+      webSearch: true
     })
   }),
   mimo: Object.freeze({
@@ -220,6 +224,14 @@ export function buildAuthHeaders(profile) {
     : { Authorization: `Bearer ${apiKey}` };
 }
 
+export function buildDeepSeekAnthropicHeaders(profile) {
+  const apiKey = cleanString(profile?.auth?.apiKey);
+  return {
+    ...(apiKey ? { "x-api-key": apiKey } : {}),
+    "anthropic-version": "2023-06-01"
+  };
+}
+
 function toApiMessage(message, profile) {
   const role = ["system", "user", "assistant", "tool"].includes(message?.role) ? message.role : "user";
   const text = typeof message?.content === "string" ? message.content : "";
@@ -249,7 +261,7 @@ export function buildChatCompletionRequest(options) {
     stream = true,
     maxOutputTokens,
     includeWebSearch = true,
-    mimoWebSearchMode = "off",
+    webSearchMode = "off",
     overrides = {}
   } = options;
   const apiMessages = messages.map((message) => toApiMessage(message, profile));
@@ -273,13 +285,66 @@ export function buildChatCompletionRequest(options) {
     body[maxOutputField] = Math.floor(maxOutputTokens);
   }
 
-  if (profile.id === "mimo" && includeWebSearch && mimoWebSearchMode !== "off") {
+  if (profile.id === "mimo" && includeWebSearch && webSearchMode !== "off") {
     body.tools = [{
       type: "web_search",
       max_keyword: 3,
-      force_search: mimoWebSearchMode === "force",
+      force_search: webSearchMode === "force",
       limit: 1
     }];
+  }
+
+  return body;
+}
+
+export function buildDeepSeekWebSearchRequest(options) {
+  const {
+    profile,
+    messages = [],
+    systemPrompt = "",
+    stream = true,
+    maxOutputTokens,
+    webSearchMode = "auto"
+  } = options;
+  const systemParts = [cleanString(systemPrompt)];
+  const apiMessages = [];
+
+  for (const message of messages) {
+    const text = typeof message?.content === "string" ? message.content : "";
+    if (message?.role === "system") {
+      if (cleanString(text)) systemParts.push(cleanString(text));
+      continue;
+    }
+    apiMessages.push({
+      role: message?.role === "assistant" ? "assistant" : "user",
+      content: text
+    });
+  }
+
+  const requestedMaxTokens = Number.isFinite(maxOutputTokens) && maxOutputTokens > 0
+    ? Math.floor(maxOutputTokens)
+    : DEEPSEEK_WEB_SEARCH_MAX_TOKENS;
+  const body = {
+    model: profile.model,
+    messages: apiMessages,
+    stream: Boolean(stream),
+    max_tokens: requestedMaxTokens,
+    thinking: {
+      type: "enabled",
+      budget_tokens: Math.min(DEEPSEEK_WEB_SEARCH_THINKING_TOKENS, Math.max(1, requestedMaxTokens - 1))
+    }
+  };
+  const system = systemParts.filter(Boolean).join("\n\n");
+  if (system) body.system = system;
+
+  if (webSearchMode !== "off") {
+    body.tools = [{
+      type: "web_search_20260209",
+      name: "web_search",
+      max_uses: 3,
+      allowed_callers: ["direct"]
+    }];
+    body.tool_choice = { type: webSearchMode === "force" ? "any" : "auto" };
   }
 
   return body;
@@ -351,6 +416,30 @@ export function normalizeUsage(value, metadata = {}) {
     !["providerId", "model", "measuredAt", "state"].includes(key) && Number.isFinite(item)
   ));
   return hasMeasuredField ? usage : null;
+}
+
+export function normalizeAnthropicUsage(value, metadata = {}) {
+  if (!value || typeof value !== "object") return null;
+  const inputTokens = numberOrNull(value.input_tokens, value.inputTokens);
+  const cacheCreationTokens = numberOrNull(value.cache_creation_input_tokens, value.cacheCreationInputTokens);
+  const cacheReadTokens = numberOrNull(value.cache_read_input_tokens, value.cacheReadInputTokens);
+  const outputTokens = numberOrNull(value.output_tokens, value.outputTokens);
+  const inputParts = [inputTokens, cacheCreationTokens, cacheReadTokens].filter(Number.isFinite);
+  const uncachedParts = [inputTokens, cacheCreationTokens].filter(Number.isFinite);
+  const promptTokens = inputParts.length > 0 ? inputParts.reduce((sum, item) => sum + item, 0) : null;
+  const uncachedPromptTokens = uncachedParts.length > 0 ? uncachedParts.reduce((sum, item) => sum + item, 0) : null;
+  const outputDetails = value.output_tokens_details || value.outputTokensDetails || {};
+  const serverToolUse = value.server_tool_use || value.serverToolUse || {};
+
+  return normalizeUsage({
+    prompt_tokens: promptTokens,
+    completion_tokens: outputTokens,
+    total_tokens: promptTokens !== null && outputTokens !== null ? promptTokens + outputTokens : null,
+    cached_prompt_tokens: cacheReadTokens,
+    uncached_prompt_tokens: uncachedPromptTokens,
+    reasoning_tokens: numberOrNull(outputDetails.thinking_tokens, outputDetails.thinkingTokens),
+    web_search_tool_usage: numberOrNull(serverToolUse.web_search_requests, serverToolUse.webSearchRequests)
+  }, metadata);
 }
 
 export function parseApiError(text, status) {
@@ -455,6 +544,114 @@ export function createStreamAccumulator(metadata = {}) {
         message.reasoning_details
       ];
       const nextReasoning = reasoningCandidates.map(reasoningText).find(Boolean) || "";
+      content += nextContent;
+      reasoningContent += nextReasoning;
+      const changed = Boolean(nextContent || nextReasoning);
+      emitted ||= changed;
+      return snapshot(changed);
+    },
+    result() {
+      return snapshot();
+    }
+  };
+}
+
+function markdownSourceList(citations) {
+  if (citations.length === 0) return "";
+  const lines = citations.map(({ title, url }) => {
+    const safeTitle = (title || url).replace(/[\[\]]/g, "");
+    return `- [${safeTitle}](${url})`;
+  });
+  return `\n\n**来源**\n${lines.join("\n")}`;
+}
+
+export function createAnthropicStreamAccumulator(metadata = {}) {
+  let content = "";
+  let reasoningContent = "";
+  let usageParts = {};
+  let usage = null;
+  let done = false;
+  let emitted = false;
+  const citations = new Map();
+
+  function addCitation(value) {
+    const rawUrl = cleanString(value?.url || value?.source?.url);
+    if (!rawUrl) return;
+    try {
+      const url = new URL(rawUrl);
+      if (!["http:", "https:"].includes(url.protocol)) return;
+      citations.set(url.href, {
+        url: url.href,
+        title: cleanString(value?.title || value?.source?.title) || url.hostname
+      });
+    } catch {
+      // Ignore malformed citation URLs returned by the provider.
+    }
+  }
+
+  function mergeUsage(value) {
+    if (!value || typeof value !== "object") return;
+    usageParts = {
+      ...usageParts,
+      ...Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null && item !== undefined)),
+      server_tool_use: {
+        ...(usageParts.server_tool_use || usageParts.serverToolUse || {}),
+        ...(value.server_tool_use || value.serverToolUse || {})
+      },
+      output_tokens_details: {
+        ...(usageParts.output_tokens_details || usageParts.outputTokensDetails || {}),
+        ...(value.output_tokens_details || value.outputTokensDetails || {})
+      }
+    };
+    usage = normalizeAnthropicUsage(usageParts, metadata);
+  }
+
+  function snapshot(changed = false) {
+    return {
+      done,
+      changed,
+      content: `${content}${done ? markdownSourceList([...citations.values()]) : ""}`,
+      reasoningContent,
+      usage,
+      emitted
+    };
+  }
+
+  return {
+    push(data) {
+      const value = cleanString(data);
+      if (!value) return snapshot();
+
+      let payload;
+      try {
+        payload = JSON.parse(value);
+      } catch {
+        throw new Error("DeepSeek 返回了无法解析的流式响应。");
+      }
+
+      if (payload?.type === "error" || payload?.error) {
+        throw parseApiError(JSON.stringify(payload), 200);
+      }
+
+      if (payload?.type === "message_start") mergeUsage(payload.message?.usage);
+      if (payload?.type === "message_delta") mergeUsage(payload.usage);
+
+      let nextContent = "";
+      let nextReasoning = "";
+      if (payload?.type === "content_block_start") {
+        const block = payload.content_block || {};
+        if (block.type === "text") nextContent = typeof block.text === "string" ? block.text : "";
+        if (block.type === "thinking") nextReasoning = typeof block.thinking === "string" ? block.thinking : "";
+        if (Array.isArray(block.citations)) block.citations.forEach(addCitation);
+      } else if (payload?.type === "content_block_delta") {
+        const delta = payload.delta || {};
+        if (delta.type === "text_delta") nextContent = typeof delta.text === "string" ? delta.text : "";
+        if (delta.type === "thinking_delta") nextReasoning = typeof delta.thinking === "string" ? delta.thinking : "";
+        if (delta.type === "citations_delta") addCitation(delta.citation);
+      } else if (payload?.type === "message_stop") {
+        done = true;
+      }
+
       content += nextContent;
       reasoningContent += nextReasoning;
       const changed = Boolean(nextContent || nextReasoning);

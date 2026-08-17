@@ -1,8 +1,12 @@
 import {
+  DEEPSEEK_ANTHROPIC_ENDPOINT,
   DEFAULT_PROVIDER_ID,
   MIMO_MULTIMODAL_MODEL,
   buildAuthHeaders,
   buildChatCompletionRequest,
+  buildDeepSeekAnthropicHeaders,
+  buildDeepSeekWebSearchRequest,
+  createAnthropicStreamAccumulator,
   createDefaultProviderConfigs,
   createStreamAccumulator,
   getProviderProfile,
@@ -56,7 +60,7 @@ const clearAllDataButton = document.getElementById("clearAllDataButton");
 const storageNotice = document.getElementById("storageNotice");
 const themeSelect = document.getElementById("themeSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
-const mimoWebSearchModeSelect = document.getElementById("mimoWebSearchModeSelect");
+const webSearchModeSelect = document.getElementById("webSearchModeSelect");
 const saveSettingsButton = document.getElementById("saveSettingsButton");
 const clearChatButton = document.getElementById("clearChatButton");
 const messagesEl = document.getElementById("messages");
@@ -71,8 +75,8 @@ const tokenUsageDetails = document.getElementById("tokenUsageDetails");
 const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_IMAGE_MIN_HEIGHT = 124;
 const COMPOSER_MAX_MARGIN = 120;
-const DEFAULT_MIMO_WEB_SEARCH_MODE = "off";
-const MIMO_WEB_SEARCH_MODES = ["off", "auto", "force"];
+const DEFAULT_WEB_SEARCH_MODE = "off";
+const WEB_SEARCH_MODES = ["off", "auto", "force"];
 const DEFAULT_IMAGE_PROMPT = "请分析这张图片。";
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -81,7 +85,7 @@ const MAX_IMAGES_PER_MESSAGE = 4;
 let settings = {
   activeProvider: DEFAULT_PROVIDER_ID,
   providerConfigs: createDefaultProviderConfigs(),
-  mimoWebSearchMode: DEFAULT_MIMO_WEB_SEARCH_MODE,
+  webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
   systemPrompt: "",
   messages: [],
@@ -121,7 +125,7 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.theme]: settings.theme,
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: activeConfig?.model || "",
-    [PREFERENCE_KEYS.mimoWebSearchMode]: settings.mimoWebSearchMode,
+    [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
     [PREFERENCE_KEYS.schemaVersion]: 1
   });
 }
@@ -148,8 +152,8 @@ function getActiveProviderConfig() {
   return settings.providerConfigs[provider.id] || createDefaultProviderConfigs()[provider.id];
 }
 
-function normalizeMimoWebSearchMode(value) {
-  return MIMO_WEB_SEARCH_MODES.includes(value) ? value : DEFAULT_MIMO_WEB_SEARCH_MODE;
+function normalizeWebSearchMode(value) {
+  return WEB_SEARCH_MODES.includes(value) ? value : DEFAULT_WEB_SEARCH_MODE;
 }
 
 function updateModelSwitchLabel(status = "") {
@@ -1147,8 +1151,10 @@ async function loadSettings() {
   settings = {
     activeProvider,
     providerConfigs,
-    mimoWebSearchMode: normalizeMimoWebSearchMode(
-      preferenceData[PREFERENCE_KEYS.mimoWebSearchMode] ?? legacyData.mimoWebSearchMode
+    webSearchMode: normalizeWebSearchMode(
+      preferenceData[PREFERENCE_KEYS.webSearchMode]
+        ?? legacyData["edgeChat.mimoWebSearchMode"]
+        ?? legacyData.mimoWebSearchMode
     ),
     theme: preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme || DEFAULT_THEME,
     systemPrompt: typeof secureState.config.systemPrompt === "string" ? secureState.config.systemPrompt : "",
@@ -1162,7 +1168,7 @@ async function loadSettings() {
 
   themeSelect.value = settings.theme;
   systemPromptInput.value = settings.systemPrompt;
-  mimoWebSearchModeSelect.value = settings.mimoWebSearchMode;
+  webSearchModeSelect.value = settings.webSearchMode;
   renderCustomProviderList();
   applyTheme(settings.theme);
   updateModelSwitchLabel();
@@ -1181,9 +1187,40 @@ function buildProviderRequestBody(provider, config, options = {}) {
     stream: options.stream !== false,
     maxOutputTokens: options.maxTokens,
     includeWebSearch: options.includeWebSearch !== false,
-    mimoWebSearchMode: settings.mimoWebSearchMode,
+    webSearchMode: settings.webSearchMode,
     overrides: options.overrides || {}
   });
+}
+
+function shouldUseDeepSeekWebSearch(provider, options = {}) {
+  return provider.id === "deepseek"
+    && provider.capabilities.webSearch
+    && options.includeWebSearch !== false
+    && settings.webSearchMode !== "off";
+}
+
+function buildStreamingRequest(provider) {
+  if (shouldUseDeepSeekWebSearch(provider)) {
+    return {
+      protocol: "anthropic",
+      endpoint: DEEPSEEK_ANTHROPIC_ENDPOINT,
+      headers: buildDeepSeekAnthropicHeaders(provider),
+      body: buildDeepSeekWebSearchRequest({
+        profile: provider,
+        messages: settings.messages,
+        systemPrompt: settings.systemPrompt,
+        stream: true,
+        webSearchMode: settings.webSearchMode
+      })
+    };
+  }
+
+  return {
+    protocol: "chat-completions",
+    endpoint: provider.endpoint,
+    headers: buildAuthHeaders(provider),
+    body: buildProviderRequestBody(provider, getActiveProviderConfig())
+  };
 }
 
 async function rememberCustomCapability(providerId, key, value) {
@@ -1194,11 +1231,11 @@ async function rememberCustomCapability(providerId, key, value) {
   await persistSecureState();
 }
 
-async function fetchChatCompletion(provider, body) {
-  return fetch(provider.endpoint, {
+async function fetchModelRequest({ endpoint, headers, body }) {
+  return fetch(endpoint, {
     method: "POST",
     headers: {
-      ...buildAuthHeaders(provider),
+      ...headers,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(body)
@@ -1207,21 +1244,21 @@ async function fetchChatCompletion(provider, body) {
 
 async function callModelStream(onDelta) {
   let provider = getActiveProvider();
-  let body = buildProviderRequestBody(provider, getActiveProviderConfig());
-  let response = await fetchChatCompletion(provider, body);
+  let request = buildStreamingRequest(provider);
+  let response = await fetchModelRequest(request);
 
   for (let attempt = 0; !response.ok && attempt < 2; attempt += 1) {
     const error = parseApiError(await response.text(), response.status);
-    if (provider.type === "custom" && body.stream_options && isExplicitUnknownParameterError(error, "stream_options")) {
+    if (provider.type === "custom" && request.body.stream_options && isExplicitUnknownParameterError(error, "stream_options")) {
       await rememberCustomCapability(provider.id, "streamUsage", "implicit");
-    } else if (provider.type === "custom" && body.thinking && isExplicitUnknownParameterError(error, "thinking")) {
+    } else if (provider.type === "custom" && request.body.thinking && isExplicitUnknownParameterError(error, "thinking")) {
       await rememberCustomCapability(provider.id, "thinking", "unsupported");
     } else {
       throw error;
     }
     provider = getActiveProvider();
-    body = buildProviderRequestBody(provider, getActiveProviderConfig());
-    response = await fetchChatCompletion(provider, body);
+    request = buildStreamingRequest(provider);
+    response = await fetchModelRequest(request);
   }
 
   if (!response.ok) {
@@ -1229,8 +1266,8 @@ async function callModelStream(onDelta) {
   }
 
   if (provider.type === "custom") {
-    if (body.stream_options) await rememberCustomCapability(provider.id, "streamUsage", "include_usage");
-    if (body.thinking) await rememberCustomCapability(provider.id, "thinking", "enabled");
+    if (request.body.stream_options) await rememberCustomCapability(provider.id, "streamUsage", "include_usage");
+    if (request.body.thinking) await rememberCustomCapability(provider.id, "thinking", "enabled");
   }
 
   if (!response.body) {
@@ -1240,11 +1277,14 @@ async function callModelStream(onDelta) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const accumulator = createStreamAccumulator({
+  const accumulatorMetadata = {
     providerId: provider.id,
     model: provider.model,
     extractTaggedReasoning: provider.type === "custom"
-  });
+  };
+  const accumulator = request.protocol === "anthropic"
+    ? createAnthropicStreamAccumulator(accumulatorMetadata)
+    : createStreamAccumulator(accumulatorMetadata);
 
   function handleEventData(data) {
     const state = accumulator.push(data);
@@ -1326,7 +1366,11 @@ async function callModelOnce(messages, options = {}) {
     maxTokens: options.maxTokens,
     overrides: { maxOutputField }
   });
-  let response = await fetchChatCompletion(provider, body);
+  let response = await fetchModelRequest({
+    endpoint: provider.endpoint,
+    headers: buildAuthHeaders(provider),
+    body
+  });
 
   for (let attempt = 0; !response.ok && attempt < 2; attempt += 1) {
     const error = parseApiError(await response.text(), response.status);
@@ -1350,7 +1394,11 @@ async function callModelOnce(messages, options = {}) {
       maxTokens: options.maxTokens,
       overrides: { maxOutputField }
     });
-    response = await fetchChatCompletion(provider, body);
+    response = await fetchModelRequest({
+      endpoint: provider.endpoint,
+      headers: buildAuthHeaders(provider),
+      body
+    });
   }
 
   if (!response.ok) {
@@ -1846,7 +1894,7 @@ saveSettingsButton.addEventListener("click", async () => {
   });
   settings.theme = themeSelect.value;
   settings.systemPrompt = systemPromptInput.value.trim();
-  settings.mimoWebSearchMode = normalizeMimoWebSearchMode(mimoWebSearchModeSelect.value);
+  settings.webSearchMode = normalizeWebSearchMode(webSearchModeSelect.value);
   refreshProviderRegistry();
   if (previousSystemPrompt !== settings.systemPrompt) markCurrentUsageStale();
   await Promise.all([persistSecureState(), persistPreferences()]);
@@ -1868,13 +1916,13 @@ clearChatButton.addEventListener("click", async () => {
   settings.providerConfigs = createDefaultProviderConfigs();
   settings.theme = DEFAULT_THEME;
   settings.systemPrompt = "";
-  settings.mimoWebSearchMode = DEFAULT_MIMO_WEB_SEARCH_MODE;
+  settings.webSearchMode = DEFAULT_WEB_SEARCH_MODE;
 
   deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
   mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
   themeSelect.value = settings.theme;
   systemPromptInput.value = settings.systemPrompt;
-  mimoWebSearchModeSelect.value = settings.mimoWebSearchMode;
+  webSearchModeSelect.value = settings.webSearchMode;
   clearCustomProviderForm();
   refreshProviderRegistry();
   markCurrentUsageStale();

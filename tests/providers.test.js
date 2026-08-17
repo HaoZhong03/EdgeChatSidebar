@@ -1,12 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEEPSEEK_ANTHROPIC_ENDPOINT,
   buildAuthHeaders,
   buildChatCompletionRequest,
+  buildDeepSeekAnthropicHeaders,
+  buildDeepSeekWebSearchRequest,
+  createAnthropicStreamAccumulator,
   createDefaultProviderConfigs,
   createStreamAccumulator,
   getProviderProfile,
   isExplicitUnknownParameterError,
+  normalizeAnthropicUsage,
   normalizeCustomProvider,
   normalizeProviderConfigs,
   normalizeUsage,
@@ -23,10 +28,12 @@ test("DeepSeek request follows its Chat Completions profile", () => {
     messages: [{ role: "user", content: "hello" }],
     systemPrompt: "brief",
     stream: true,
-    maxOutputTokens: 256
+    maxOutputTokens: 256,
+    webSearchMode: "force"
   });
 
   assert.equal(profile.endpoint, "https://api.deepseek.com/chat/completions");
+  assert.equal(profile.capabilities.webSearch, true);
   assert.deepEqual(buildAuthHeaders(profile), { Authorization: "Bearer secret" });
   assert.deepEqual(body, {
     model: "deepseek-v4-flash",
@@ -38,6 +45,47 @@ test("DeepSeek request follows its Chat Completions profile", () => {
     stream_options: { include_usage: true },
     thinking: { type: "enabled" },
     max_tokens: 256
+  });
+});
+
+test("DeepSeek web search uses the official Anthropic-compatible transport", () => {
+  const configs = createDefaultProviderConfigs();
+  configs.deepseek.apiKey = "secret";
+  const profile = getProviderProfile(configs, "deepseek");
+  const body = buildDeepSeekWebSearchRequest({
+    profile,
+    messages: [
+      { role: "system", content: "session summary" },
+      { role: "user", content: "latest news" },
+      { role: "assistant", content: "previous answer" }
+    ],
+    systemPrompt: "brief",
+    stream: true,
+    webSearchMode: "force"
+  });
+
+  assert.equal(DEEPSEEK_ANTHROPIC_ENDPOINT, "https://api.deepseek.com/anthropic/v1/messages");
+  assert.deepEqual(buildDeepSeekAnthropicHeaders(profile), {
+    "x-api-key": "secret",
+    "anthropic-version": "2023-06-01"
+  });
+  assert.deepEqual(body, {
+    model: "deepseek-v4-flash",
+    messages: [
+      { role: "user", content: "latest news" },
+      { role: "assistant", content: "previous answer" }
+    ],
+    stream: true,
+    max_tokens: 8192,
+    thinking: { type: "enabled", budget_tokens: 4096 },
+    system: "brief\n\nsession summary",
+    tools: [{
+      type: "web_search_20260209",
+      name: "web_search",
+      max_uses: 3,
+      allowed_callers: ["direct"]
+    }],
+    tool_choice: { type: "any" }
   });
 });
 
@@ -54,7 +102,7 @@ test("MiMo uses api-key, max_completion_tokens, implicit stream usage, image and
     }],
     stream: true,
     maxOutputTokens: 300,
-    mimoWebSearchMode: "force"
+    webSearchMode: "force"
   });
 
   assert.equal(profile.endpoint, "https://api.xiaomimimo.com/v1/chat/completions");
@@ -169,6 +217,25 @@ test("usage mapping keeps only measured provider fields", () => {
   assert.equal(normalizeUsage({ request_id: "x" }), null);
 });
 
+test("Anthropic usage maps total input cache and DeepSeek web-search calls", () => {
+  const usage = normalizeAnthropicUsage({
+    input_tokens: 10,
+    cache_creation_input_tokens: 2,
+    cache_read_input_tokens: 3,
+    output_tokens: 4,
+    output_tokens_details: { thinking_tokens: 2 },
+    server_tool_use: { web_search_requests: 1 }
+  }, { providerId: "deepseek", model: "deepseek-v4-pro", measuredAt: 123 });
+
+  assert.equal(usage.promptTokens, 15);
+  assert.equal(usage.cachedPromptTokens, 3);
+  assert.equal(usage.uncachedPromptTokens, 12);
+  assert.equal(usage.completionTokens, 4);
+  assert.equal(usage.totalTokens, 19);
+  assert.equal(usage.reasoningTokens, 2);
+  assert.equal(usage.webSearchToolUsage, 1);
+});
+
 test("SSE accumulator accepts reasoning, nullable deltas, empty-choice usage chunks and DONE", () => {
   const stream = createStreamAccumulator({ providerId: "deepseek", model: "model" });
   stream.push('{"choices":[{"delta":{"reasoning_content":"think","content":null}}]}');
@@ -179,6 +246,28 @@ test("SSE accumulator accepts reasoning, nullable deltas, empty-choice usage chu
   assert.equal(result.reasoningContent, "think");
   assert.equal(result.content, "answer");
   assert.equal(result.usage.promptTokens, 9);
+  assert.equal(result.done, true);
+});
+
+test("DeepSeek Anthropic SSE accumulates thinking text usage and cited sources", () => {
+  const stream = createAnthropicStreamAccumulator({
+    providerId: "deepseek",
+    model: "deepseek-v4-pro",
+    measuredAt: 123
+  });
+  stream.push('{"type":"message_start","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":1}}}');
+  stream.push('{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"think"}}');
+  stream.push('{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"answer"}}');
+  stream.push('{"type":"content_block_delta","index":1,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://example.com/source","title":"Example source"}}}');
+  stream.push('{"type":"message_delta","usage":{"output_tokens":4,"output_tokens_details":{"thinking_tokens":2},"server_tool_use":{"web_search_requests":1}}}');
+  stream.push('{"type":"message_stop"}');
+
+  const result = stream.result();
+  assert.equal(result.reasoningContent, "think");
+  assert.equal(result.content, "answer\n\n**来源**\n- [Example source](https://example.com/source)");
+  assert.equal(result.usage.promptTokens, 15);
+  assert.equal(result.usage.totalTokens, 19);
+  assert.equal(result.usage.webSearchToolUsage, 1);
   assert.equal(result.done, true);
 });
 

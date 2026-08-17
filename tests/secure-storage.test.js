@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import "fake-indexeddb/auto";
 import {
+  LEGACY_STORAGE_KEYS,
+  PREFERENCE_KEYS,
   clearAllLocalData,
   garbageCollectSecureStore,
   readLegacyStorage,
@@ -12,6 +14,11 @@ import {
 } from "../secure-storage.js";
 
 globalThis.crypto ??= webcrypto;
+
+test("shared web-search preference replaces and migrates the MiMo-only key", () => {
+  assert.equal(PREFERENCE_KEYS.webSearchMode, "edgeChat.webSearchMode");
+  assert.equal(LEGACY_STORAGE_KEYS.includes("edgeChat.mimoWebSearchMode"), true);
+});
 
 function openRawDatabase() {
   return new Promise((resolve, reject) => {

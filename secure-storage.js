@@ -9,7 +9,7 @@ export const PREFERENCE_KEYS = Object.freeze({
   theme: "edgeChat.theme",
   activeProvider: "edgeChat.activeProvider",
   activeModel: "edgeChat.activeModel",
-  mimoWebSearchMode: "edgeChat.mimoWebSearchMode",
+  webSearchMode: "edgeChat.webSearchMode",
   schemaVersion: "edgeChat.schemaVersion"
 });
 
@@ -17,6 +17,7 @@ export const LEGACY_STORAGE_KEYS = Object.freeze([
   "activeModelProvider",
   "modelProviderConfigs",
   "mimoWebSearchMode",
+  "edgeChat.mimoWebSearchMode",
   "deepseekTheme",
   "deepseekSystemPrompt",
   "deepseekMessages",

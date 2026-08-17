@@ -15,14 +15,14 @@
 
 ## ⚙️使用前配置
 
-本程序默认内置了对`DeepSeek`和`小米 MiMo`的配置支持，它们都是便宜好用的模型，并且小米 MiMo 也提供了良好的联网搜索功能，尤其 `mimo-v2.5` 模型还具备多模态能力。**如果想用其他的或者自己的模型，也可以自己添加自定义提供商。**
+本程序默认内置了对`DeepSeek`和`小米 MiMo`的配置支持，它们都支持联网搜索，且 `mimo-v2.5` 模型还具备多模态能力。**如果想用其他的或者自己的模型，也可以自己添加自定义提供商。**
 
 | 提供商 | 模型名称 | 百万 tokens 输出价格 | 备注 |
 | --- | --- | --- | --- |
-| DeepSeek | `deepseek-v4-flash` | 4.5元（高峰翻倍） | 0731正式版，便宜好用的模型斩杀线 |
-| DeepSeek | `deepseek-v4-pro` | 13.5元（高峰翻倍） | 0813超神还是超鬼尚不可知 |
-| Xiaomi | `mimo-v2.5` | 2元 | 联网搜索+多模态杀疯了，但是好久没更新了 |
-| Xiaomi | `mimo-v2.5-pro` | 6元 | 联网搜索 |
+| DeepSeek | `deepseek-v4-flash` | 4.5元（高峰翻倍） | 0731正式版，也不算便宜了现在，但是有原生联网搜索了，还差一个多模态 |
+| DeepSeek | `deepseek-v4-pro` | 13.5元（高峰翻倍） | 不予置评 |
+| Xiaomi | `mimo-v2.5` | 2元 | 好用，好久没更新了 |
+| Xiaomi | `mimo-v2.5-pro` | 6元 | 缺一个多模态 |
 
 >💡值得一提，小米 MiMo 还有其他产品比如语音识别和语音合成模型。本项目还没有先进到这个维度所以有想法的可以自己去探索。
 
@@ -31,8 +31,8 @@
 1. 在侧栏右下角打开设置。
 2. 选择主题：跟随系统、浅色或深色。
 3. 可选填写系统提示词。
-4. 如需使用小米 MiMo 联网搜索，选择“自动判断”或“强制搜索”。
->小米 MiMo 联网搜索使用前需要在小米 MiMo 开放平台的插件管理中启用 Web Search Plugin。自动判断模式由模型决定是否搜索，强制搜索模式会在每轮 MiMo 请求中要求搜索。
+4. 如需使用 DeepSeek 或小米 MiMo 联网搜索，选择“自动判断”或“强制搜索”。此设置由两个内置提供商共用，并作用于当前选中的模型。
+>DeepSeek 联网请求使用官方 Anthropic-compatible Web Search 通道；小米 MiMo 联网搜索使用前仍需在小米 MiMo 开放平台的插件管理中启用 Web Search Plugin。自动判断模式由模型决定是否搜索，强制搜索模式会要求当前模型执行搜索。
 1. 配置模型 API：展开“高级模型 API”，为 DeepSeek 或小米 MiMo 填写 API Key；也可以添加自定义 OpenAI格式的 Chat Completions 提供商。
 2. 保存后开始对话。
 
@@ -41,7 +41,7 @@
 如果模型配置正确，左下角会显示“已连接”状态，并可以正常发送消息。
 
 1. 点击左下角模型按钮展开列表，可手动选择 DeepSeek 或小米 MiMo 的具体模型，默认使用 DeepSeek。选择 `mimo-v2.5` 时，可在输入框中直接粘贴 PNG、JPEG 或 WebP 图片并随消息发送。每条消息最多 4 张图片，单张不超过 5MB。
-2. 消息发送后，模型会进行思考并返回回答。第一次对话完成后，本次对话将会被保存为历史对话。下方主值显示最近一次成功普通对话请求由 API 返回的精确 `prompt_tokens`，点击可查看总量、输出、推理、缓存、图片和搜索等可用明细。
+2. 消息发送后，模型会进行思考并返回回答。第一次对话完成后，本次对话将会被保存为历史对话。下方主值显示最近一次成功普通对话请求由 API 返回的精确 `total_tokens`，点击可查看总量、输出、推理、缓存、图片和搜索等可用明细。
 >💡小技巧：可以在对话过程中切换不同的模型以满足你对不同智能的需求，模型切换后会继续使用当前对话上下文。
 3. 可通过右下角的“历史对话”按钮管理历史对话，进行切换、压缩上下文或删除操作。
 4. 如果你对模型的回答不满意，可以对最新发送的一条消息进行编辑并重新发送。
@@ -51,11 +51,12 @@
 - API Key、系统提示词、提供商配置、会话、思考内容、usage 和图片均使用 AES-256-GCM 加密后保存在 IndexedDB，不会写入项目文件，也不会以明文保存在 `chrome.storage.local`。
 - 项目默认使用的Chat Completions API 是无状态接口，所以扩展会把历史消息一起发送，以支持多轮对话。
   - 默认 DeepSeek 请求地址为 `https://api.deepseek.com/chat/completions`，请求字段以 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion) 为准。
+  - 开启 DeepSeek 联网搜索时，请求会切换到官方 Anthropic-compatible `https://api.deepseek.com/anthropic/v1/messages`，并使用服务端 Web Search 工具；关闭后仍走原 Chat Completions 地址。
   - 默认小米 MiMo 请求地址为 `https://api.xiaomimimo.com/v1/chat/completions`，请求字段以 [MiMo OpenAI Chat Completions 兼容文档](https://mimo.mi.com/docs/zh-CN/api/chat/openai-api) 为准。
 - 使用小米 MiMo `mimo-v2.5` 支持粘贴图片发送时，扩展会按官方 OpenAI 兼容多模态消息格式发送：`content: [{ type: "text", text }, { type: "image_url", image_url: { url: "data:image/...;base64,..." } }]`。图片在磁盘上作为独立加密二进制记录保存，不保留明文 Data URL。
 - 支持流式输出和 thinking mode；回答会边生成边显示，思考过程会在回答上方以折叠区展示。
 - 思考过程只用于本地展示和历史记录，不会作为下一轮请求消息发送给模型 API。
-- **自定义提供商只支持文本 `/chat/completions` 基础兼容模式，不开放图片、联网搜索、任意请求头、自由 JSON 模板或自定义 JavaScript。**思考模式会先尝试发送 `thinking.type=enabled`；服务端明确报告不支持时会移除该字段重试并记忆结果。流式响应可识别 `reasoning_content`、`reasoning`、`analysis` 和 `thinking` 等常见思考字段。
+- **自定义提供商只支持文本 `/chat/completions` 基础兼容模式，不开放图片、联网搜索、任意请求头、自由 JSON 模板或自定义 JavaScript**。思考模式会先尝试发送 `thinking.type=enabled`；服务端明确报告不支持时会移除该字段重试并记忆结果。流式响应可识别 `reasoning_content`、`reasoning`、`analysis` 和 `thinking` 等常见思考字段。
 - 流式请求先发送 `stream_options.include_usage=true`；只有服务端在开始输出前明确报告该字段未知时，才移除该字段重试并记忆结果。
 - 如果服务端成功响应但不返回 usage，状态栏显示“此模型未返回用量”，不会把字符数或本地估算冒充精确 token。
 
