@@ -24,17 +24,21 @@
   "side_panel": {
     "default_path": "sidebar.html"
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "permissions": [
     "sidePanel",
     "storage",
     "unlimitedStorage"
   ],
   "host_permissions": [
-    "https://*"
-  ],
-  "optional_host_permissions": [
     "https://*/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+
   ]
 }

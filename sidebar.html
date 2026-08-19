@@ -9,110 +9,6 @@
   </head>
   <body>
     <main class="app">
-      <section id="settingsPanel" class="settings" aria-label="模型设置" aria-modal="true" role="dialog">
-        <div class="settings-dialog">
-          <div class="settings-titlebar">
-            <h2>设置</h2>
-            <button id="closeSettingsButton" class="icon-button close-button" type="button" aria-label="关闭设置" title="关闭设置">
-              <span aria-hidden="true"></span>
-            </button>
-          </div>
-          <label class="field">
-            <span>主题</span>
-            <select id="themeSelect">
-              <option value="system">跟随系统</option>
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
-            </select>
-          </label>
-          <div class="timestamp-settings">
-            <label class="toggle-field" for="showTimestampsInput">
-              <span>显示消息时间戳</span>
-              <input id="showTimestampsInput" type="checkbox" role="switch" aria-controls="timestampFormatSelect" checked>
-            </label>
-            <label class="field">
-              <span>时间戳格式</span>
-              <select id="timestampFormatSelect">
-                <option value="time-24">24 小时制（14:30）</option>
-                <option value="time-12">12 小时制（下午 2:30）</option>
-                <option value="month-day-time">月日与时间（08/19 14:30）</option>
-                <option value="full">完整日期时间（2026/08/19 14:30:25）</option>
-              </select>
-            </label>
-          </div>
-          <label class="field">
-            <span>系统提示词</span>
-            <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>
-          </label>
-          <label class="field">
-            <span>DeepSeek / 小米 MiMo 联网搜索</span>
-            <select id="webSearchModeSelect">
-              <option value="off">关闭</option>
-              <option value="auto">自动判断</option>
-              <option value="force">强制搜索</option>
-            </select>
-          </label>
-          <p class="settings-help">此开关由两个内置提供商共用；只会作用于当前选中的 DeepSeek 或小米 MiMo 模型。</p>
-          <details id="apiSettingsDetails" class="api-settings">
-            <summary>高级模型 API</summary>
-            <div class="api-provider">
-              <h3>DeepSeek</h3>
-              <label class="field">
-                <span>API Key</span>
-                <input id="deepseekApiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
-              </label>
-            </div>
-            <div class="api-provider">
-              <h3>小米 MiMo</h3>
-              <label class="field">
-                <span>API Key</span>
-                <input id="mimoApiKeyInput" type="password" autocomplete="off" placeholder="MiMo API Key">
-              </label>
-            </div>
-            <div class="api-provider custom-provider-settings">
-              <h3>自定义提供商</h3>
-              <p class="settings-help">支持 OpenAI-compatible Chat Completions。公网仅允许 HTTPS，本地 HTTP 仅允许 localhost 或 127.0.0.1。</p>
-              <div id="customProviderList" class="custom-provider-list"></div>
-              <input id="customProviderIdInput" type="hidden">
-              <label class="field">
-                <span>提供商名称</span>
-                <input id="customProviderNameInput" type="text" autocomplete="off" placeholder="例如：本地模型">
-              </label>
-              <label class="field">
-                <span>完整 Chat Completions Endpoint</span>
-                <input id="customProviderEndpointInput" type="url" autocomplete="off" placeholder="https://example.com/v1/chat/completions">
-              </label>
-              <label class="field">
-                <span>API Key（可为空）</span>
-                <input id="customProviderApiKeyInput" type="password" autocomplete="off" placeholder="有值时使用 Bearer">
-              </label>
-              <label class="field">
-                <span>模型 ID（每行一个）</span>
-                <textarea id="customProviderModelsInput" rows="3" placeholder="model-a&#10;model-b"></textarea>
-              </label>
-              <div class="inline-actions">
-                <button id="saveCustomProviderButton" type="button" class="secondary">添加提供商</button>
-                <button id="cancelCustomProviderButton" type="button" class="secondary" hidden>取消编辑</button>
-              </div>
-              <p id="customProviderNotice" class="settings-notice" role="status" hidden></p>
-            </div>
-          </details>
-          <details class="api-settings data-settings">
-            <summary>本地数据与缓存</summary>
-            <p class="settings-help">API Key、系统提示词、对话和图片均加密保存在本机。清理缓存不会删除历史列表中可见的对话。</p>
-            <p id="storageNotice" class="settings-notice" role="status" hidden></p>
-            <div class="inline-actions">
-              <button id="cleanupCacheButton" type="button" class="secondary">清理缓存</button>
-              <button id="clearAllDataButton" type="button" class="danger">清空全部本地数据</button>
-            </div>
-          </details>
-          <div class="settings-actions">
-            <button id="saveSettingsButton" type="button">保存设置</button>
-            <button id="clearChatButton" type="button" class="secondary">重置设置</button>
-          </div>
-        </div>
-      </section>
-
       <section id="historyPanel" class="history" aria-label="历史对话" aria-modal="true" role="dialog">
         <div class="history-dialog">
           <div class="settings-titlebar">
@@ -156,7 +52,7 @@
           <button id="historyButton" class="icon-button" type="button" aria-label="历史对话" title="历史对话">
             <span aria-hidden="true">📄</span>
           </button>
-          <button id="settingsButton" class="icon-button" type="button" aria-label="设置" title="设置">
+          <button id="settingsButton" class="icon-button" type="button" aria-label="打开拓展选项" title="拓展选项">
             <span aria-hidden="true">⚙️</span>
           </button>
         </div>

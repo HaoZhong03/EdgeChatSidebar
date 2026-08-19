@@ -365,6 +365,44 @@ export async function readSecureState() {
   return { config, sessions, currentSessionId: index.currentSessionId };
 }
 
+export async function readSecureConfig() {
+  const { database, key } = await initializeSecureStore();
+  const configRecord = await getRecord(database, "config");
+  if (!configRecord) return null;
+  return decryptJson(key, configRecord, "config");
+}
+
+export function writeSecureConfig(config) {
+  return enqueue(async () => {
+    const { database, key } = await initializeSecureStore();
+    const encrypted = await encryptJson(key, "config", "config", config || {});
+    const transaction = database.transaction(RECORD_STORE, "readwrite");
+    transaction.objectStore(RECORD_STORE).put(encrypted);
+    await transactionDone(transaction);
+  });
+}
+
+export function markSecureCurrentSessionUsageStale() {
+  return enqueue(async () => {
+    const { database, key } = await initializeSecureStore();
+    const indexRecord = await getRecord(database, "session-index");
+    if (!indexRecord) return false;
+    const index = await decryptJson(key, indexRecord, "session-index");
+    const sessionId = index.currentSessionId;
+    if (!sessionId) return false;
+    const recordId = sessionRecordId(sessionId);
+    const sessionRecord = await getRecord(database, recordId);
+    if (!sessionRecord) return false;
+    const session = await decryptJson(key, sessionRecord, "session");
+    session.contextUsageState = (session.messages || []).length > 0 ? "stale" : "empty";
+    const encrypted = await encryptJson(key, recordId, "session", session);
+    const transaction = database.transaction(RECORD_STORE, "readwrite");
+    transaction.objectStore(RECORD_STORE).put(encrypted);
+    await transactionDone(transaction);
+    return true;
+  });
+}
+
 export function garbageCollectSecureStore() {
   return enqueue(async () => {
     const { database, key } = await initializeSecureStore();

@@ -7,9 +7,12 @@ import {
   PREFERENCE_KEYS,
   clearAllLocalData,
   garbageCollectSecureStore,
+  markSecureCurrentSessionUsageStale,
   readLegacyStorage,
+  readSecureConfig,
   readSecureState,
   removeLegacyStorage,
+  writeSecureConfig,
   writeSecureState
 } from "../secure-storage.js";
 
@@ -117,6 +120,32 @@ test("garbage collection removes orphan sessions and images but preserves shared
   const restored = await readSecureState();
   assert.equal(restored.sessions.length, 1);
   assert.equal(restored.sessions[0].messages[0].images[0].id, "shared");
+  await clearAllLocalData();
+});
+
+test("options updates encrypted config without replacing sessions", async () => {
+  await writeSecureState({
+    config: { providerConfigs: {}, systemPrompt: "old prompt" },
+    sessions: [{
+      id: "options-session",
+      title: "keep me",
+      messages: [{ role: "user", content: "preserved", images: [] }],
+      contextUsage: { promptTokens: 12, totalTokens: 12 },
+      contextUsageState: "measured",
+      createdAt: 1,
+      updatedAt: 2
+    }],
+    currentSessionId: "options-session"
+  });
+
+  await writeSecureConfig({ providerConfigs: {}, systemPrompt: "new prompt" });
+  await markSecureCurrentSessionUsageStale();
+
+  const config = await readSecureConfig();
+  const restored = await readSecureState();
+  assert.equal(config.systemPrompt, "new prompt");
+  assert.equal(restored.sessions[0].messages[0].content, "preserved");
+  assert.equal(restored.sessions[0].contextUsageState, "stale");
   await clearAllLocalData();
 });
 

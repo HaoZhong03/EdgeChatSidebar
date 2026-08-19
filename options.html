@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="system">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Edge Chat Sidebar · 拓展选项</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <header class="page-header">
+      <div class="header-content">
+        <img class="brand-icon" src="assets/icon-48.png" alt="">
+        <div>
+          <p class="eyebrow">Edge Chat Sidebar</p>
+          <h1>拓展选项</h1>
+          <p class="header-description">集中管理界面、对话、模型 API 与本地数据。</p>
+        </div>
+      </div>
+    </header>
+
+    <div class="options-layout">
+      <nav class="section-nav" aria-label="选项分类">
+        <a href="#appearance">外观与消息</a>
+        <a href="#conversation">对话行为</a>
+        <a href="#providers">模型 API</a>
+        <a href="#storage">本地数据</a>
+      </nav>
+
+      <main class="options-content">
+        <section id="appearance" class="settings-section" aria-labelledby="appearanceTitle">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">显示</p>
+              <h2 id="appearanceTitle">外观与消息</h2>
+            </div>
+            <p>控制侧栏配色和消息时间的显示方式。</p>
+          </div>
+          <div class="settings-card">
+            <label class="field-row">
+              <span class="field-copy">
+                <strong>主题</strong>
+                <small>可跟随浏览器所在系统的浅色或深色外观。</small>
+              </span>
+              <select id="themeSelect">
+                <option value="system">跟随系统</option>
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+              </select>
+            </label>
+            <div class="field-row">
+              <label class="field-copy" for="showTimestampsInput">
+                <strong>显示消息时间戳</strong>
+                <small>在每条消息下方显示真实发送时间。</small>
+              </label>
+              <label class="switch">
+                <input id="showTimestampsInput" type="checkbox" role="switch" aria-controls="timestampFormatSelect">
+                <span aria-hidden="true"></span>
+              </label>
+            </div>
+            <label class="field-row">
+              <span class="field-copy">
+                <strong>时间戳格式</strong>
+                <small>选择消息时间的详细程度。</small>
+              </span>
+              <select id="timestampFormatSelect">
+                <option value="time-24">24 小时制（14:30）</option>
+                <option value="time-12">12 小时制（下午 2:30）</option>
+                <option value="month-day-time">月日与时间（08/19 14:30）</option>
+                <option value="full">完整日期时间（2026/08/19 14:30:25）</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section id="conversation" class="settings-section" aria-labelledby="conversationTitle">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">行为</p>
+              <h2 id="conversationTitle">对话行为</h2>
+            </div>
+            <p>这些设置会应用到之后发送的模型请求。</p>
+          </div>
+          <div class="settings-card stacked-fields">
+            <label class="field">
+              <span>系统提示词</span>
+              <textarea id="systemPromptInput" rows="5" placeholder="例如：用简洁中文回答。"></textarea>
+              <small>修改系统提示词后，当前会话的上下文用量会标记为需要重新测量。</small>
+            </label>
+            <label class="field">
+              <span>DeepSeek / 小米 MiMo 联网搜索</span>
+              <select id="webSearchModeSelect">
+                <option value="off">关闭</option>
+                <option value="auto">自动判断</option>
+                <option value="force">强制搜索</option>
+              </select>
+              <small>两个内置提供商共用此选项，只作用于侧栏中当前选中的内置模型。</small>
+            </label>
+          </div>
+        </section>
+
+        <section id="providers" class="settings-section" aria-labelledby="providersTitle">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">连接</p>
+              <h2 id="providersTitle">模型 API</h2>
+            </div>
+            <p>API Key 与提供商配置会加密保存在本机。</p>
+          </div>
+          <div class="provider-grid">
+            <article class="provider-card">
+              <div class="provider-heading">
+                <span class="provider-mark">D</span>
+                <div>
+                  <h3>DeepSeek</h3>
+                  <p>内置 Chat Completions 与联网搜索支持</p>
+                </div>
+              </div>
+              <label class="field">
+                <span>API Key</span>
+                <input id="deepseekApiKeyInput" type="password" autocomplete="off" placeholder="sk-...">
+              </label>
+            </article>
+            <article class="provider-card">
+              <div class="provider-heading">
+                <span class="provider-mark mimo">M</span>
+                <div>
+                  <h3>小米 MiMo</h3>
+                  <p>内置文本、多模态与联网搜索支持</p>
+                </div>
+              </div>
+              <label class="field">
+                <span>API Key</span>
+                <input id="mimoApiKeyInput" type="password" autocomplete="off" placeholder="MiMo API Key">
+              </label>
+            </article>
+          </div>
+
+          <article class="settings-card custom-provider-card">
+            <div class="subsection-heading">
+              <div>
+                <h3>自定义提供商</h3>
+                <p>支持 OpenAI-compatible Chat Completions。公网仅允许 HTTPS，本地 HTTP 仅允许 localhost 或 127.0.0.1。</p>
+              </div>
+            </div>
+            <div id="customProviderList" class="custom-provider-list"></div>
+            <div class="custom-provider-form" aria-label="自定义提供商编辑区">
+              <input id="customProviderIdInput" type="hidden">
+              <label class="field">
+                <span>提供商名称</span>
+                <input id="customProviderNameInput" type="text" autocomplete="off" placeholder="例如：本地模型">
+              </label>
+              <label class="field field-wide">
+                <span>完整 Chat Completions Endpoint</span>
+                <input id="customProviderEndpointInput" type="url" autocomplete="off" placeholder="https://example.com/v1/chat/completions">
+              </label>
+              <label class="field">
+                <span>API Key（可为空）</span>
+                <input id="customProviderApiKeyInput" type="password" autocomplete="off" placeholder="有值时使用 Bearer">
+              </label>
+              <label class="field">
+                <span>模型 ID（每行一个）</span>
+                <textarea id="customProviderModelsInput" rows="4" placeholder="model-a&#10;model-b"></textarea>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="saveCustomProviderButton" type="button" class="secondary">添加提供商</button>
+              <button id="cancelCustomProviderButton" type="button" class="ghost" hidden>取消编辑</button>
+            </div>
+            <p id="customProviderNotice" class="notice" role="status" hidden></p>
+          </article>
+        </section>
+
+        <section id="storage" class="settings-section" aria-labelledby="storageTitle">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">隐私</p>
+              <h2 id="storageTitle">本地数据</h2>
+            </div>
+            <p>管理加密会话数据、图片和孤儿缓存。</p>
+          </div>
+          <div class="settings-card storage-card">
+            <div class="storage-action">
+              <div>
+                <strong>清理缓存</strong>
+                <p>删除历史索引未引用的孤儿会话、图片与迁移临时记录，不会删除可见对话。</p>
+              </div>
+              <button id="cleanupCacheButton" type="button" class="secondary">清理缓存</button>
+            </div>
+            <div class="storage-action danger-zone">
+              <div>
+                <strong>清空全部本地数据</strong>
+                <p>永久删除 API Key、提供商、系统提示词、历史对话、图片与动态访问权限。</p>
+              </div>
+              <button id="clearAllDataButton" type="button" class="danger">清空全部数据</button>
+            </div>
+            <p id="storageNotice" class="notice" role="status" hidden></p>
+          </div>
+        </section>
+
+        <div class="save-bar">
+          <p id="saveNotice" class="save-notice" role="status" aria-live="polite"></p>
+          <div class="button-row">
+            <button id="resetSettingsButton" type="button" class="ghost">重置设置</button>
+            <button id="saveSettingsButton" type="button" class="primary">保存设置</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
