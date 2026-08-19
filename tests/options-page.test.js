@@ -8,6 +8,15 @@ test("manifest registers the dedicated options page", async () => {
     page: "options.html",
     open_in_tab: true
   });
+  assert.deepEqual(manifest.host_permissions, [
+    "https://api.deepseek.com/*",
+    "https://api.xiaomimimo.com/*"
+  ]);
+  assert.deepEqual(manifest.optional_host_permissions, [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ]);
 });
 
 test("settings controls live on the options page and the sidebar opens it", async () => {
