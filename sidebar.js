@@ -27,6 +27,12 @@ import {
   removeLegacyStorage,
   writeSecureState
 } from "./secure-storage.js";
+import {
+  DEFAULT_SHOW_TIMESTAMPS,
+  DEFAULT_TIMESTAMP_FORMAT,
+  formatMessageTimestamp,
+  normalizeTimestampFormat
+} from "./message-timestamps.js";
 
 const DEFAULT_THEME = "system";
 
@@ -59,6 +65,8 @@ const cleanupCacheButton = document.getElementById("cleanupCacheButton");
 const clearAllDataButton = document.getElementById("clearAllDataButton");
 const storageNotice = document.getElementById("storageNotice");
 const themeSelect = document.getElementById("themeSelect");
+const showTimestampsInput = document.getElementById("showTimestampsInput");
+const timestampFormatSelect = document.getElementById("timestampFormatSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
 const webSearchModeSelect = document.getElementById("webSearchModeSelect");
 const saveSettingsButton = document.getElementById("saveSettingsButton");
@@ -87,6 +95,8 @@ let settings = {
   providerConfigs: createDefaultProviderConfigs(),
   webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
+  showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
+  timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
   systemPrompt: "",
   messages: [],
   sessions: [],
@@ -126,6 +136,8 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: activeConfig?.model || "",
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
+    [PREFERENCE_KEYS.showTimestamps]: settings.showTimestamps,
+    [PREFERENCE_KEYS.timestampFormat]: settings.timestampFormat,
     [PREFERENCE_KEYS.schemaVersion]: 1
   });
 }
@@ -154,6 +166,14 @@ function getActiveProviderConfig() {
 
 function normalizeWebSearchMode(value) {
   return WEB_SEARCH_MODES.includes(value) ? value : DEFAULT_WEB_SEARCH_MODE;
+}
+
+function normalizeShowTimestamps(value) {
+  return typeof value === "boolean" ? value : DEFAULT_SHOW_TIMESTAMPS;
+}
+
+function updateTimestampFormatControl() {
+  timestampFormatSelect.disabled = !showTimestampsInput.checked;
 }
 
 function updateModelSwitchLabel(status = "") {
@@ -338,7 +358,8 @@ function normalizeMessage(message) {
     ...message,
     role: typeof message.role === "string" ? message.role : "user",
     content: typeof message.content === "string" ? message.content : "",
-    images: normalizeImageAttachments(message.images)
+    images: normalizeImageAttachments(message.images),
+    timestamp: Number.isFinite(message.timestamp) ? message.timestamp : null
   };
 }
 
@@ -608,6 +629,9 @@ function openSettings() {
   closeModelMenu();
   deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
   mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
+  showTimestampsInput.checked = settings.showTimestamps;
+  timestampFormatSelect.value = settings.timestampFormat;
+  updateTimestampFormatControl();
   systemPromptInput.value = settings.systemPrompt;
   renderCustomProviderList();
   settingsPanel.classList.add("open");
@@ -665,7 +689,8 @@ function renderMessages(options = {}) {
       editable: index === editableMessageIndex,
       images: message.images,
       messageIndex: index,
-      reasoningContent: message.reasoningContent || ""
+      reasoningContent: message.reasoningContent || "",
+      timestamp: message.timestamp
     });
   }
 
@@ -934,20 +959,48 @@ function setMessageContent(element, role, content, options = {}) {
   }
 }
 
-function createUserMessageActions(messageIndex) {
-  const actions = document.createElement("div");
-  actions.className = "message-actions";
+function createMessageTimestamp(timestamp) {
+  if (!settings.showTimestamps) {
+    return null;
+  }
 
-  const editButton = document.createElement("button");
-  editButton.type = "button";
-  editButton.className = "message-edit";
-  editButton.dataset.messageIndex = String(messageIndex);
-  editButton.setAttribute("aria-label", "编辑并重新发送这条消息");
-  editButton.setAttribute("title", "编辑并重新发送");
-  editButton.textContent = "✎";
+  const text = formatMessageTimestamp(timestamp, settings.timestampFormat);
+  if (!text) {
+    return null;
+  }
 
-  actions.appendChild(editButton);
-  return actions;
+  const element = document.createElement("time");
+  element.className = "message-timestamp";
+  element.dateTime = new Date(timestamp).toISOString();
+  element.textContent = text;
+  element.title = formatMessageTimestamp(timestamp, "full");
+  return element;
+}
+
+function createMessageFooter(options = {}) {
+  const timestamp = createMessageTimestamp(options.timestamp);
+  if (!timestamp && !options.editable) {
+    return null;
+  }
+
+  const footer = document.createElement("div");
+  footer.className = "message-footer";
+  if (timestamp) {
+    footer.appendChild(timestamp);
+  }
+
+  if (options.editable) {
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "message-edit";
+    editButton.dataset.messageIndex = String(options.messageIndex);
+    editButton.setAttribute("aria-label", "编辑并重新发送这条消息");
+    editButton.setAttribute("title", "编辑并重新发送");
+    editButton.textContent = "✎";
+    footer.appendChild(editButton);
+  }
+
+  return footer;
 }
 
 function appendEditableUserMessage(message, messageIndex) {
@@ -1064,6 +1117,10 @@ function appendMessage(role, content, options = {}) {
   if (role === "assistant") {
     const controls = createAssistantMessageControls(content, options.reasoningContent || "", Boolean(options.streaming));
     wrapper.appendChild(controls.body);
+    const footer = createMessageFooter(options);
+    if (footer) {
+      wrapper.appendChild(footer);
+    }
     messagesEl.appendChild(wrapper);
     scrollMessagesToBottom();
     return controls;
@@ -1074,8 +1131,12 @@ function appendMessage(role, content, options = {}) {
   setMessageContent(body, role, content, options);
   wrapper.appendChild(body);
 
-  if (role === "user" && options.editable) {
-    wrapper.appendChild(createUserMessageActions(options.messageIndex));
+  const footer = createMessageFooter({
+    ...options,
+    editable: role === "user" && options.editable
+  });
+  if (footer) {
+    wrapper.appendChild(footer);
   }
 
   messagesEl.appendChild(wrapper);
@@ -1157,6 +1218,8 @@ async function loadSettings() {
         ?? legacyData.mimoWebSearchMode
     ),
     theme: preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme || DEFAULT_THEME,
+    showTimestamps: normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]),
+    timestampFormat: normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]),
     systemPrompt: typeof secureState.config.systemPrompt === "string" ? secureState.config.systemPrompt : "",
     messages: [],
     sessions,
@@ -1167,6 +1230,9 @@ async function loadSettings() {
   syncCurrentSessionMessages();
 
   themeSelect.value = settings.theme;
+  showTimestampsInput.checked = settings.showTimestamps;
+  timestampFormatSelect.value = settings.timestampFormat;
+  updateTimestampFormatControl();
   systemPromptInput.value = settings.systemPrompt;
   webSearchModeSelect.value = settings.webSearchMode;
   renderCustomProviderList();
@@ -1492,7 +1558,8 @@ async function compressSessionContext(sessionId, button) {
     session.messages = [
       {
         role: "system",
-        content: `以下为已压缩的历史上下文摘要：\n${summary.trim()}`
+        content: `以下为已压缩的历史上下文摘要：\n${summary.trim()}`,
+        timestamp: Date.now()
       },
       ...recentMessages
     ];
@@ -1670,7 +1737,8 @@ async function requestReplyForCurrentMessages() {
       role: "assistant",
       content: reply.content,
       reasoningContent: reply.reasoningContent,
-      usage: reply.usage
+      usage: reply.usage,
+      timestamp: Date.now()
     });
     const session = getCurrentSession();
     session.contextUsage = reply.usage;
@@ -1704,6 +1772,8 @@ settingsButton.addEventListener("click", () => {
 
   openSettings();
 });
+
+showTimestampsInput.addEventListener("change", updateTimestampFormatControl);
 
 modelSwitchButton.addEventListener("click", () => {
   toggleModelMenu();
@@ -1893,6 +1963,8 @@ saveSettingsButton.addEventListener("click", async () => {
     }
   });
   settings.theme = themeSelect.value;
+  settings.showTimestamps = showTimestampsInput.checked;
+  settings.timestampFormat = normalizeTimestampFormat(timestampFormatSelect.value);
   settings.systemPrompt = systemPromptInput.value.trim();
   settings.webSearchMode = normalizeWebSearchMode(webSearchModeSelect.value);
   refreshProviderRegistry();
@@ -1900,13 +1972,14 @@ saveSettingsButton.addEventListener("click", async () => {
   await Promise.all([persistSecureState(), persistPreferences()]);
 
   applyTheme(settings.theme);
+  renderMessages({ preserveScroll: true });
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
   closeSettings();
 });
 
 clearChatButton.addEventListener("click", async () => {
-  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
+  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
   if (!confirmed) return;
 
   const customOrigins = [...new Set(Object.values(settings.providerConfigs)
@@ -1915,12 +1988,17 @@ clearChatButton.addEventListener("click", async () => {
   settings.activeProvider = DEFAULT_PROVIDER_ID;
   settings.providerConfigs = createDefaultProviderConfigs();
   settings.theme = DEFAULT_THEME;
+  settings.showTimestamps = DEFAULT_SHOW_TIMESTAMPS;
+  settings.timestampFormat = DEFAULT_TIMESTAMP_FORMAT;
   settings.systemPrompt = "";
   settings.webSearchMode = DEFAULT_WEB_SEARCH_MODE;
 
   deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
   mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
   themeSelect.value = settings.theme;
+  showTimestampsInput.checked = settings.showTimestamps;
+  timestampFormatSelect.value = settings.timestampFormat;
+  updateTimestampFormatControl();
   systemPromptInput.value = settings.systemPrompt;
   webSearchModeSelect.value = settings.webSearchMode;
   clearCustomProviderForm();
@@ -1932,6 +2010,7 @@ clearChatButton.addEventListener("click", async () => {
   }
 
   applyTheme(settings.theme);
+  renderMessages({ preserveScroll: true });
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
   renderModelMenu();
@@ -2145,7 +2224,7 @@ messagesEl.addEventListener("submit", async (event) => {
 
   settings.messages = [
     ...settings.messages.slice(0, messageIndex),
-    { role: "user", content, images }
+    { role: "user", content, images, timestamp: Date.now() }
   ];
   markCurrentUsageStale();
   editingMessageIndex = -1;
@@ -2201,10 +2280,10 @@ chatForm.addEventListener("submit", async (event) => {
     content = DEFAULT_IMAGE_PROMPT;
   }
 
-  const userMessage = { role: "user", content, images };
+  const userMessage = { role: "user", content, images, timestamp: Date.now() };
   settings.messages.push(userMessage);
   markCurrentUsageStale();
-  appendMessage("user", content, { images });
+  appendMessage("user", content, { images, timestamp: userMessage.timestamp });
   messageInput.value = "";
   pendingImages = [];
   renderPendingImages();

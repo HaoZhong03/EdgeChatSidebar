@@ -20,6 +20,11 @@ test("shared web-search preference replaces and migrates the MiMo-only key", () 
   assert.equal(LEGACY_STORAGE_KEYS.includes("edgeChat.mimoWebSearchMode"), true);
 });
 
+test("timestamp display preferences are stored as non-sensitive settings", () => {
+  assert.equal(PREFERENCE_KEYS.showTimestamps, "edgeChat.showTimestamps");
+  assert.equal(PREFERENCE_KEYS.timestampFormat, "edgeChat.timestampFormat");
+});
+
 function openRawDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open("edge-chat-sidebar", 1);
@@ -55,6 +60,7 @@ test("secure state round-trips while raw IndexedDB contains no sensitive plainte
       messages: [{
         role: "user",
         content: message,
+        timestamp: 1787119509000,
         images: [{ id: "i1", name: "secret.png", mimeType: "image/png", size: 8, dataUrl }]
       }]
     }],
@@ -78,6 +84,7 @@ test("secure state round-trips while raw IndexedDB contains no sensitive plainte
   const restored = await readSecureState();
   assert.equal(restored.config.providerConfigs.deepseek.apiKey, secret);
   assert.equal(restored.sessions[0].messages[0].content, message);
+  assert.equal(restored.sessions[0].messages[0].timestamp, 1787119509000);
   assert.equal(restored.sessions[0].messages[0].images[0].dataUrl, dataUrl);
   await clearAllLocalData();
 });

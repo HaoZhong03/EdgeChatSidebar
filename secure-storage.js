@@ -10,6 +10,8 @@ export const PREFERENCE_KEYS = Object.freeze({
   activeProvider: "edgeChat.activeProvider",
   activeModel: "edgeChat.activeModel",
   webSearchMode: "edgeChat.webSearchMode",
+  showTimestamps: "edgeChat.showTimestamps",
+  timestampFormat: "edgeChat.timestampFormat",
   schemaVersion: "edgeChat.schemaVersion"
 });
 

@@ -25,6 +25,21 @@
               <option value="dark">深色</option>
             </select>
           </label>
+          <div class="timestamp-settings">
+            <label class="toggle-field" for="showTimestampsInput">
+              <span>显示消息时间戳</span>
+              <input id="showTimestampsInput" type="checkbox" role="switch" aria-controls="timestampFormatSelect" checked>
+            </label>
+            <label class="field">
+              <span>时间戳格式</span>
+              <select id="timestampFormatSelect">
+                <option value="time-24">24 小时制（14:30）</option>
+                <option value="time-12">12 小时制（下午 2:30）</option>
+                <option value="month-day-time">月日与时间（08/19 14:30）</option>
+                <option value="full">完整日期时间（2026/08/19 14:30:25）</option>
+              </select>
+            </label>
+          </div>
           <label class="field">
             <span>系统提示词</span>
             <textarea id="systemPromptInput" rows="3" placeholder="例如：用简洁中文回答。"></textarea>

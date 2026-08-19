@@ -29,12 +29,11 @@
 然而，本程序并不是一个开箱即用的程序，因为我没有多余的钱给你们配置一个内置的免费 API Key。**你需要自己去申请 API Key，并在扩展设置中配置。**
 
 1. 在侧栏右下角打开设置。
-2. 选择主题：跟随系统、浅色或深色。
-3. 可选填写系统提示词。
-4. 如需使用 DeepSeek 或小米 MiMo 联网搜索，选择“自动判断”或“强制搜索”。此设置由两个内置提供商共用，并作用于当前选中的模型。
+2. 可选填写系统提示词。
+3. 如需使用 DeepSeek 或小米 MiMo 联网搜索，选择“自动判断”或“强制搜索”。此设置由两个内置提供商共用，并作用于当前选中的模型。
 >DeepSeek 联网请求使用官方 Anthropic-compatible Web Search 通道；小米 MiMo 联网搜索使用前仍需在小米 MiMo 开放平台的插件管理中启用 Web Search Plugin。自动判断模式由模型决定是否搜索，强制搜索模式会要求当前模型执行搜索。
-1. 配置模型 API：展开“高级模型 API”，为 DeepSeek 或小米 MiMo 填写 API Key；也可以添加自定义 OpenAI格式的 Chat Completions 提供商。
-2. 保存后开始对话。
+4. 配置模型 API：展开“高级模型 API”，为 DeepSeek 或小米 MiMo 填写 API Key；也可以添加自定义 OpenAI格式的 Chat Completions 提供商。
+5. 保存后开始对话。
 
 ## 📖使用中说明
 
@@ -44,11 +43,12 @@
 2. 消息发送后，模型会进行思考并返回回答。第一次对话完成后，本次对话将会被保存为历史对话。下方主值显示最近一次成功普通对话请求由 API 返回的精确 `total_tokens`，点击可查看总量、输出、推理、缓存、图片和搜索等可用明细。
 >💡小技巧：可以在对话过程中切换不同的模型以满足你对不同智能的需求，模型切换后会继续使用当前对话上下文。
 3. 可通过右下角的“历史对话”按钮管理历史对话，进行切换、压缩上下文或删除操作。
-4. 如果你对模型的回答不满意，可以对最新发送的一条消息进行编辑并重新发送。
+4. 新发送的消息会记录真实发送时间；开启时间戳后，它显示在消息下方。最新用户消息的时间位于编辑按钮左侧。
+5. 如果你对模型的回答不满意，可以对最新发送的一条消息进行编辑并重新发送。
 
 ## 📝细节
 
-- API Key、系统提示词、提供商配置、会话、思考内容、usage 和图片均使用 AES-256-GCM 加密后保存在 IndexedDB，不会写入项目文件，也不会以明文保存在 `chrome.storage.local`。
+- API Key、系统提示词、提供商配置、会话、消息时间、思考内容、usage 和图片均使用 AES-256-GCM 加密后保存在 IndexedDB，不会写入项目文件，也不会以明文保存在 `chrome.storage.local`。
 - 项目默认使用的Chat Completions API 是无状态接口，所以扩展会把历史消息一起发送，以支持多轮对话。
   - 默认 DeepSeek 请求地址为 `https://api.deepseek.com/chat/completions`，请求字段以 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion) 为准。
   - 开启 DeepSeek 联网搜索时，请求会切换到官方 Anthropic-compatible `https://api.deepseek.com/anthropic/v1/messages`，并使用服务端 Web Search 工具；关闭后仍走原 Chat Completions 地址。
@@ -69,7 +69,8 @@
 
 ## ✏️计划
 
-- [ ] 优化消息编辑 UI 并增加时间戳显示
+- [x] 增加可配置的消息时间戳显示
+- [ ] 优化消息编辑 UI
 - [ ] 优化设置UI，分为主题界面和模型配置界面
 - [x] 增加自定义模型功能
 - [ ] 增加自定义主题功能
