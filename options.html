@@ -24,6 +24,7 @@
         <a href="#conversation">对话行为</a>
         <a href="#providers">模型 API</a>
         <a href="#storage">本地数据</a>
+        <a href="#about">关于</a>
       </nav>
 
       <main class="options-content">
@@ -33,7 +34,7 @@
               <p class="section-kicker">显示</p>
               <h2 id="appearanceTitle">外观与消息</h2>
             </div>
-            <p>控制扩展界面的配色、全局字号和消息时间显示。</p>
+            <p>控制扩展界面的配色、背景、面板效果、全局字号和消息时间显示。</p>
           </div>
           <div class="settings-card">
             <label class="field-row">
@@ -47,6 +48,89 @@
                 <option value="dark">深色</option>
               </select>
             </label>
+            <label class="field-row">
+              <span class="field-copy">
+                <strong>侧栏背景</strong>
+                <small>使用主题默认背景、纯色或保存在本机的图片。</small>
+              </span>
+              <select id="backgroundModeSelect">
+                <option value="default">主题默认</option>
+                <option value="solid">纯色</option>
+                <option value="image">自定义图片</option>
+              </select>
+            </label>
+            <div id="solidBackgroundSettings" class="field-row background-dependent" hidden>
+              <span class="field-copy">
+                <strong>背景颜色</strong>
+                <small>可选择预设色，或手动输入六位十六进制颜色代码。</small>
+              </span>
+              <div class="color-control">
+                <div id="presetColorList" class="preset-color-list" aria-label="预设背景颜色"></div>
+                <div class="manual-color-row">
+                  <input id="backgroundColorPicker" type="color" value="#f4f7fb" aria-label="选择背景颜色">
+                  <input id="backgroundColorInput" type="text" value="#F4F7FB" maxlength="7" spellcheck="false" aria-label="六位背景颜色代码" placeholder="#F4F7FB">
+                </div>
+              </div>
+            </div>
+            <div id="imageBackgroundSettings" class="field-row background-dependent" hidden>
+              <label class="field-copy" for="backgroundImageInput">
+                <strong>背景图片</strong>
+                <small>最大 10 MB；保持宽高比铺满侧栏，超出窗口的部分会裁切，不会拉伸或留白。</small>
+              </label>
+              <div class="background-image-control">
+                <input id="backgroundImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif">
+                <div id="backgroundImagePreview" class="background-image-preview" hidden>
+                  <img id="backgroundImagePreviewImage" alt="背景图片预览">
+                  <button id="removeBackgroundImageButton" class="ghost" type="button">移除图片</button>
+                </div>
+              </div>
+            </div>
+            <div id="backgroundBrightnessSettings" class="field-row background-dependent" hidden>
+              <label class="field-copy" for="backgroundBrightnessInput">
+                <strong>图片明暗度</strong>
+                <small>低于 100% 时降低图片亮度；高于 100% 时保持原始亮度并逐步增加白色遮罩。</small>
+              </label>
+              <div class="range-control">
+                <input id="backgroundBrightnessInput" type="range" min="20" max="150" step="5" value="100">
+                <output id="backgroundBrightnessValue" for="backgroundBrightnessInput" aria-live="polite">100%</output>
+              </div>
+            </div>
+            <div class="field-row">
+              <span class="field-copy">
+                <strong>对话输入区效果</strong>
+                <small>调整输入区容器背景；其中的输入框和发送按钮不受影响。</small>
+              </span>
+              <div class="dual-range-control">
+                <label class="compact-range-control">
+                  <span>不透明度</span>
+                  <input id="composerOpacityInput" type="range" min="0" max="100" step="5" value="100">
+                  <output id="composerOpacityValue" for="composerOpacityInput">100%</output>
+                </label>
+                <label class="compact-range-control">
+                  <span>高斯模糊</span>
+                  <input id="composerBlurInput" type="range" min="0" max="30" step="1" value="0">
+                  <output id="composerBlurValue" for="composerBlurInput">0 px</output>
+                </label>
+              </div>
+            </div>
+            <div class="field-row">
+              <span class="field-copy">
+                <strong>状态栏效果</strong>
+                <small>调整状态栏容器背景；模型、用量和操作按钮不受影响。</small>
+              </span>
+              <div class="dual-range-control">
+                <label class="compact-range-control">
+                  <span>不透明度</span>
+                  <input id="statusbarOpacityInput" type="range" min="0" max="100" step="5" value="100">
+                  <output id="statusbarOpacityValue" for="statusbarOpacityInput">100%</output>
+                </label>
+                <label class="compact-range-control">
+                  <span>高斯模糊</span>
+                  <input id="statusbarBlurInput" type="range" min="0" max="30" step="1" value="0">
+                  <output id="statusbarBlurValue" for="statusbarBlurInput">0 px</output>
+                </label>
+              </div>
+            </div>
             <div class="field-row">
               <label class="field-copy" for="fontSizeInput">
                 <strong>全局字号</strong>
@@ -204,6 +288,39 @@
               <button id="clearAllDataButton" type="button" class="danger">清空全部数据</button>
             </div>
             <p id="storageNotice" class="notice" role="status" hidden></p>
+          </div>
+        </section>
+
+        <section id="about" class="settings-section" aria-labelledby="aboutTitle">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">信息</p>
+              <h2 id="aboutTitle">关于</h2>
+            </div>
+            <p>查看 Edge Chat Sidebar 的版本与开发者信息。</p>
+          </div>
+          <div class="settings-card about-card">
+            <div class="field-row">
+              <span class="field-copy">
+                <strong>版本号</strong>
+                <small>当前安装的扩展版本。</small>
+              </span>
+              <span id="extensionVersion" class="about-value">2.0.0</span>
+            </div>
+            <div class="field-row">
+              <span class="field-copy">
+                <strong>作者</strong>
+                <small>项目的开发与维护者。</small>
+              </span>
+              <span class="about-value">HaoZhong03</span>
+            </div>
+            <div class="field-row">
+              <span class="field-copy">
+                <strong>联系方式</strong>
+                <small>如有问题或建议，欢迎通过邮件联系。</small>
+              </span>
+              <a class="about-value about-link" href="mailto:haozhong03@foxmail.com">haozhong03@foxmail.com</a>
+            </div>
           </div>
         </section>
 

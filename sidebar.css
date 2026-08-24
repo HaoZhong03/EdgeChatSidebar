@@ -23,6 +23,13 @@
   --code-bg: #eef2f7;
   --pre-bg: #111827;
   --pre-text: #f8fafc;
+  --composer-panel-opacity: 100%;
+  --composer-panel-blur: 0px;
+  --statusbar-panel-opacity: 100%;
+  --statusbar-panel-blur: 0px;
+  --background-light-overlay-opacity: 0;
+  --statusbar-height: 38px;
+  --message-footer-clearance: 49px;
   font-size: var(--global-font-size);
   background: var(--bg);
   color: var(--text);
@@ -122,13 +129,35 @@ button {
 }
 
 .app {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   min-height: 100vh;
-  padding-bottom: calc(var(--composer-height, 64px) + 38px);
-  background: var(--bg);
+  background: transparent;
+}
+
+.app-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--bg);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.app-background-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: #ffffff;
+  opacity: var(--background-light-overlay-opacity);
+  transition: opacity 0.18s ease;
 }
 
 .icon-button {
@@ -609,11 +638,18 @@ button {
 }
 
 .messages {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-height: 0;
-  padding: 14px;
+  padding: 14px 14px calc(
+    var(--composer-height, 64px) + var(--statusbar-height) + var(--message-footer-clearance)
+  );
+  scroll-padding-bottom: calc(
+    var(--composer-height, 64px) + var(--statusbar-height) + var(--message-footer-clearance)
+  );
   overflow-y: auto;
 }
 
@@ -1098,7 +1134,7 @@ button {
 .composer {
   position: fixed;
   right: 0;
-  bottom: 38px;
+  bottom: var(--statusbar-height);
   left: 0;
   z-index: 2;
   display: grid;
@@ -1109,7 +1145,10 @@ button {
   height: var(--composer-height, 64px);
   padding: 10px;
   border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) var(--composer-panel-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--composer-panel-blur));
+  backdrop-filter: blur(var(--composer-panel-blur));
+  will-change: backdrop-filter;
 }
 
 .composer:has(.pending-images:not([hidden])) {
@@ -1283,10 +1322,13 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  height: 38px;
+  height: var(--statusbar-height);
   padding: 4px 10px;
   border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) var(--statusbar-panel-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--statusbar-panel-blur));
+  backdrop-filter: blur(var(--statusbar-panel-blur));
+  will-change: backdrop-filter;
 }
 
 .status-info {

@@ -13,10 +13,12 @@ import {
   garbageCollectSecureStore,
   markSecureCurrentSessionUsageStale,
   readLegacyStorage,
+  readSecureBackgroundImage,
   readSecureConfig,
   readSecureState,
   removeLegacyStorage,
   writeSecureConfig,
+  writeSecureBackgroundImage,
   writeSecureState
 } from "./secure-storage.js";
 import {
@@ -28,6 +30,16 @@ import {
   DEFAULT_FONT_SIZE,
   normalizeFontSize
 } from "./font-size.js";
+import {
+  DEFAULT_APPEARANCE_SETTINGS,
+  MAX_BACKGROUND_IMAGE_BYTES,
+  PRESET_BACKGROUND_COLORS,
+  SUPPORTED_BACKGROUND_IMAGE_TYPES,
+  isValidHexColor,
+  normalizeAppearanceSettings,
+  normalizeBackgroundImage,
+  normalizeHexColor
+} from "./appearance.js";
 
 const DEFAULT_THEME = "system";
 const DEFAULT_WEB_SEARCH_MODE = "off";
@@ -35,6 +47,27 @@ const THEMES = ["system", "light", "dark"];
 const WEB_SEARCH_MODES = ["off", "auto", "force"];
 
 const themeSelect = document.getElementById("themeSelect");
+const backgroundModeSelect = document.getElementById("backgroundModeSelect");
+const solidBackgroundSettings = document.getElementById("solidBackgroundSettings");
+const imageBackgroundSettings = document.getElementById("imageBackgroundSettings");
+const backgroundBrightnessSettings = document.getElementById("backgroundBrightnessSettings");
+const presetColorList = document.getElementById("presetColorList");
+const backgroundColorPicker = document.getElementById("backgroundColorPicker");
+const backgroundColorInput = document.getElementById("backgroundColorInput");
+const backgroundImageInput = document.getElementById("backgroundImageInput");
+const backgroundImagePreview = document.getElementById("backgroundImagePreview");
+const backgroundImagePreviewImage = document.getElementById("backgroundImagePreviewImage");
+const removeBackgroundImageButton = document.getElementById("removeBackgroundImageButton");
+const backgroundBrightnessInput = document.getElementById("backgroundBrightnessInput");
+const backgroundBrightnessValue = document.getElementById("backgroundBrightnessValue");
+const composerOpacityInput = document.getElementById("composerOpacityInput");
+const composerOpacityValue = document.getElementById("composerOpacityValue");
+const composerBlurInput = document.getElementById("composerBlurInput");
+const composerBlurValue = document.getElementById("composerBlurValue");
+const statusbarOpacityInput = document.getElementById("statusbarOpacityInput");
+const statusbarOpacityValue = document.getElementById("statusbarOpacityValue");
+const statusbarBlurInput = document.getElementById("statusbarBlurInput");
+const statusbarBlurValue = document.getElementById("statusbarBlurValue");
 const fontSizeInput = document.getElementById("fontSizeInput");
 const fontSizeValue = document.getElementById("fontSizeValue");
 const showTimestampsInput = document.getElementById("showTimestampsInput");
@@ -55,6 +88,7 @@ const customProviderNotice = document.getElementById("customProviderNotice");
 const cleanupCacheButton = document.getElementById("cleanupCacheButton");
 const clearAllDataButton = document.getElementById("clearAllDataButton");
 const storageNotice = document.getElementById("storageNotice");
+const extensionVersion = document.getElementById("extensionVersion");
 const resetSettingsButton = document.getElementById("resetSettingsButton");
 const saveSettingsButton = document.getElementById("saveSettingsButton");
 const saveNotice = document.getElementById("saveNotice");
@@ -64,6 +98,7 @@ let settings = {
   providerConfigs: createDefaultProviderConfigs(),
   webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
+  ...DEFAULT_APPEARANCE_SETTINGS,
   fontSize: DEFAULT_FONT_SIZE,
   showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
   timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
@@ -128,6 +163,70 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = normalizeTheme(theme);
 }
 
+function updateRangeOutput(input, output, suffix) {
+  output.textContent = `${input.value}${suffix}`;
+}
+
+function updatePresetColorSelection(color) {
+  const normalizedColor = isValidHexColor(color) ? normalizeHexColor(color) : "";
+  for (const button of presetColorList.querySelectorAll(".preset-color-button")) {
+    button.classList.toggle("selected", button.dataset.color === normalizedColor);
+  }
+}
+
+function setBackgroundColorControls(color) {
+  const normalizedColor = normalizeHexColor(color);
+  backgroundColorPicker.value = normalizedColor.toLowerCase();
+  backgroundColorInput.value = normalizedColor;
+  updatePresetColorSelection(normalizedColor);
+}
+
+function updateBackgroundImagePreview() {
+  const hasImage = Boolean(settings.backgroundImage);
+  backgroundImagePreview.hidden = !hasImage;
+  if (hasImage) {
+    backgroundImagePreviewImage.src = settings.backgroundImage;
+  } else {
+    backgroundImagePreviewImage.removeAttribute("src");
+  }
+}
+
+function updateAppearanceControls() {
+  const mode = backgroundModeSelect.value;
+  solidBackgroundSettings.hidden = mode !== "solid";
+  imageBackgroundSettings.hidden = mode !== "image";
+  backgroundBrightnessSettings.hidden = mode !== "image";
+  updateBackgroundImagePreview();
+  updateRangeOutput(backgroundBrightnessInput, backgroundBrightnessValue, "%");
+  updateRangeOutput(composerOpacityInput, composerOpacityValue, "%");
+  updateRangeOutput(composerBlurInput, composerBlurValue, " px");
+  updateRangeOutput(statusbarOpacityInput, statusbarOpacityValue, "%");
+  updateRangeOutput(statusbarBlurInput, statusbarBlurValue, " px");
+}
+
+function renderPresetColors() {
+  presetColorList.innerHTML = "";
+  for (const color of PRESET_BACKGROUND_COLORS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "preset-color-button";
+    button.dataset.color = color;
+    button.style.setProperty("--preset-color", color);
+    button.setAttribute("aria-label", `使用背景颜色 ${color}`);
+    button.title = color;
+    presetColorList.appendChild(button);
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result), { once: true });
+    reader.addEventListener("error", () => reject(reader.error || new Error("无法读取图片。")), { once: true });
+    reader.readAsDataURL(file);
+  });
+}
+
 function updateTimestampFormatControl() {
   timestampFormatSelect.disabled = !showTimestampsInput.checked;
 }
@@ -145,6 +244,13 @@ function updateFontSizeControl(value = fontSizeInput.value) {
 
 function syncFormFromSettings() {
   themeSelect.value = settings.theme;
+  backgroundModeSelect.value = settings.backgroundMode;
+  setBackgroundColorControls(settings.backgroundColor);
+  backgroundBrightnessInput.value = String(settings.backgroundBrightness);
+  composerOpacityInput.value = String(settings.composerOpacity);
+  composerBlurInput.value = String(settings.composerBlur);
+  statusbarOpacityInput.value = String(settings.statusbarOpacity);
+  statusbarBlurInput.value = String(settings.statusbarBlur);
   fontSizeInput.value = String(settings.fontSize);
   updateFontSizeControl(settings.fontSize);
   showTimestampsInput.checked = settings.showTimestamps;
@@ -154,12 +260,31 @@ function syncFormFromSettings() {
   deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
   mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
   applyTheme(settings.theme);
+  updateAppearanceControls();
   updateTimestampFormatControl();
   clearCustomProviderForm();
   renderCustomProviderList();
 }
 
 function syncSettingsFromForm() {
+  if (backgroundModeSelect.value === "solid" && !isValidHexColor(backgroundColorInput.value)) {
+    throw new Error("背景颜色必须是六位十六进制颜色代码，例如 #F4F7FB。");
+  }
+
+  const appearance = normalizeAppearanceSettings({
+    ...settings,
+    backgroundMode: backgroundModeSelect.value,
+    backgroundColor: backgroundColorInput.value,
+    backgroundBrightness: backgroundBrightnessInput.value,
+    composerOpacity: composerOpacityInput.value,
+    composerBlur: composerBlurInput.value,
+    statusbarOpacity: statusbarOpacityInput.value,
+    statusbarBlur: statusbarBlurInput.value
+  });
+  if (appearance.backgroundMode === "image" && !appearance.backgroundImage) {
+    throw new Error("请选择一张有效的背景图片，或改用默认/纯色背景。");
+  }
+
   settings.providerConfigs = normalizeProviderConfigs({
     ...settings.providerConfigs,
     deepseek: {
@@ -172,6 +297,7 @@ function syncSettingsFromForm() {
     }
   });
   settings.theme = normalizeTheme(themeSelect.value);
+  Object.assign(settings, appearance);
   settings.fontSize = normalizeFontSize(fontSizeInput.value);
   settings.showTimestamps = showTimestampsInput.checked;
   settings.timestampFormat = normalizeTimestampFormat(timestampFormatSelect.value);
@@ -201,6 +327,13 @@ async function persistPreferences() {
   await storageSet({
     [PREFERENCE_KEYS.theme]: settings.theme,
     [PREFERENCE_KEYS.fontSize]: settings.fontSize,
+    [PREFERENCE_KEYS.backgroundMode]: settings.backgroundMode,
+    [PREFERENCE_KEYS.backgroundColor]: settings.backgroundColor,
+    [PREFERENCE_KEYS.backgroundBrightness]: settings.backgroundBrightness,
+    [PREFERENCE_KEYS.composerOpacity]: settings.composerOpacity,
+    [PREFERENCE_KEYS.composerBlur]: settings.composerBlur,
+    [PREFERENCE_KEYS.statusbarOpacity]: settings.statusbarOpacity,
+    [PREFERENCE_KEYS.statusbarBlur]: settings.statusbarBlur,
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: getActiveProviderModel(),
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
@@ -234,6 +367,7 @@ async function persistSettings({ markUsageStale = false, preserveActiveSelection
     providerConfigs: settings.providerConfigs,
     systemPrompt: settings.systemPrompt
   });
+  await writeSecureBackgroundImage(settings.backgroundImage);
   if (markUsageStale) await markSecureCurrentSessionUsageStale();
   await persistPreferences();
   await notifySidebar();
@@ -354,6 +488,16 @@ async function loadSettings() {
         ?? legacyData.mimoWebSearchMode
     ),
     theme: normalizeTheme(preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme),
+    ...normalizeAppearanceSettings({
+      backgroundMode: preferenceData[PREFERENCE_KEYS.backgroundMode],
+      backgroundColor: preferenceData[PREFERENCE_KEYS.backgroundColor],
+      backgroundImage: await readSecureBackgroundImage(),
+      backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
+      composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
+      composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
+      statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
+      statusbarBlur: preferenceData[PREFERENCE_KEYS.statusbarBlur]
+    }),
     fontSize: normalizeFontSize(
       preferenceData[PREFERENCE_KEYS.fontSize] ?? legacyData["edgeChat.messageFontSize"]
     ),
@@ -375,6 +519,83 @@ themeSelect.addEventListener("change", () => {
   applyTheme(themeSelect.value);
   setSaveNotice("有未保存的更改");
 });
+
+backgroundModeSelect.addEventListener("change", () => {
+  updateAppearanceControls();
+  setSaveNotice("有未保存的更改");
+});
+
+presetColorList.addEventListener("click", (event) => {
+  const button = event.target.closest(".preset-color-button");
+  if (!button) return;
+  setBackgroundColorControls(button.dataset.color);
+  setSaveNotice("有未保存的更改");
+});
+
+backgroundColorPicker.addEventListener("input", () => {
+  setBackgroundColorControls(backgroundColorPicker.value);
+  setSaveNotice("有未保存的更改");
+});
+
+backgroundColorInput.addEventListener("input", () => {
+  if (isValidHexColor(backgroundColorInput.value)) {
+    const color = normalizeHexColor(backgroundColorInput.value);
+    backgroundColorPicker.value = color.toLowerCase();
+    updatePresetColorSelection(color);
+  } else {
+    updatePresetColorSelection("");
+  }
+  setSaveNotice("有未保存的更改");
+});
+
+backgroundImageInput.addEventListener("change", async () => {
+  const [file] = backgroundImageInput.files || [];
+  if (!file) return;
+  if (!SUPPORTED_BACKGROUND_IMAGE_TYPES.includes(file.type)) {
+    backgroundImageInput.value = "";
+    setSaveNotice("不支持该图片格式，请选择 PNG、JPEG、WebP、GIF 或 AVIF。", "error");
+    return;
+  }
+  if (file.size > MAX_BACKGROUND_IMAGE_BYTES) {
+    backgroundImageInput.value = "";
+    setSaveNotice("背景图片不能超过 10 MB。", "error");
+    return;
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    const normalizedImage = normalizeBackgroundImage(dataUrl);
+    if (!normalizedImage) throw new Error("图片内容无效或尺寸超过限制。");
+    settings.backgroundImage = normalizedImage;
+    backgroundModeSelect.value = "image";
+    updateAppearanceControls();
+    setSaveNotice("背景图片已载入，保存设置后应用到侧栏。");
+  } catch (error) {
+    backgroundImageInput.value = "";
+    setSaveNotice(`读取背景图片失败：${error.message}`, "error");
+  }
+});
+
+removeBackgroundImageButton.addEventListener("click", () => {
+  settings.backgroundImage = "";
+  backgroundImageInput.value = "";
+  backgroundModeSelect.value = "default";
+  updateAppearanceControls();
+  setSaveNotice("背景图片已移除，并已切换为主题默认背景；保存设置后生效。");
+});
+
+for (const [input, output, suffix] of [
+  [backgroundBrightnessInput, backgroundBrightnessValue, "%"],
+  [composerOpacityInput, composerOpacityValue, "%"],
+  [composerBlurInput, composerBlurValue, " px"],
+  [statusbarOpacityInput, statusbarOpacityValue, "%"],
+  [statusbarBlurInput, statusbarBlurValue, " px"]
+]) {
+  input.addEventListener("input", () => {
+    updateRangeOutput(input, output, suffix);
+    setSaveNotice("有未保存的更改");
+  });
+}
 
 fontSizeInput.addEventListener("input", () => {
   updateFontSizeControl();
@@ -411,7 +632,7 @@ saveSettingsButton.addEventListener("click", async () => {
 });
 
 resetSettingsButton.addEventListener("click", async () => {
-  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题、全局字号、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
+  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题背景、透明与模糊效果、全局字号、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
   if (!confirmed) return;
 
   resetSettingsButton.disabled = true;
@@ -423,6 +644,7 @@ resetSettingsButton.addEventListener("click", async () => {
     providerConfigs: createDefaultProviderConfigs(),
     webSearchMode: DEFAULT_WEB_SEARCH_MODE,
     theme: DEFAULT_THEME,
+    ...DEFAULT_APPEARANCE_SETTINGS,
     fontSize: DEFAULT_FONT_SIZE,
     showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
     timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
@@ -584,6 +806,9 @@ clearAllDataButton.addEventListener("click", async () => {
     clearAllDataButton.disabled = false;
   }
 });
+
+extensionVersion.textContent = chrome.runtime.getManifest().version;
+renderPresetColors();
 
 loadSettings().catch((error) => {
   setSaveNotice(`初始化失败：${error.message}`, "error");

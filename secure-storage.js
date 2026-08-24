@@ -4,6 +4,7 @@ const SCHEMA_VERSION = 1;
 const KEY_ID = "vault-key-v1";
 const KEY_STORE = "keys";
 const RECORD_STORE = "records";
+const BACKGROUND_IMAGE_RECORD_ID = "background-image";
 
 export const PREFERENCE_KEYS = Object.freeze({
   theme: "edgeChat.theme",
@@ -11,6 +12,13 @@ export const PREFERENCE_KEYS = Object.freeze({
   activeModel: "edgeChat.activeModel",
   webSearchMode: "edgeChat.webSearchMode",
   fontSize: "edgeChat.fontSize",
+  backgroundMode: "edgeChat.backgroundMode",
+  backgroundColor: "edgeChat.backgroundColor",
+  backgroundBrightness: "edgeChat.backgroundBrightness",
+  composerOpacity: "edgeChat.composerOpacity",
+  composerBlur: "edgeChat.composerBlur",
+  statusbarOpacity: "edgeChat.statusbarOpacity",
+  statusbarBlur: "edgeChat.statusbarBlur",
   showTimestamps: "edgeChat.showTimestamps",
   timestampFormat: "edgeChat.timestampFormat",
   schemaVersion: "edgeChat.schemaVersion"
@@ -380,6 +388,46 @@ export function writeSecureConfig(config) {
     const encrypted = await encryptJson(key, "config", "config", config || {});
     const transaction = database.transaction(RECORD_STORE, "readwrite");
     transaction.objectStore(RECORD_STORE).put(encrypted);
+    await transactionDone(transaction);
+  });
+}
+
+export async function readSecureBackgroundImage() {
+  const { database, key } = await initializeSecureStore();
+  const record = await getRecord(database, BACKGROUND_IMAGE_RECORD_ID);
+  if (!record) return "";
+  const bytes = await decryptRecordBytes(key, record, {
+    id: BACKGROUND_IMAGE_RECORD_ID,
+    kind: "background-image"
+  });
+  return unpackImage(bytes, BACKGROUND_IMAGE_RECORD_ID).dataUrl;
+}
+
+export function writeSecureBackgroundImage(dataUrl) {
+  return enqueue(async () => {
+    const { database, key } = await initializeSecureStore();
+    let encrypted;
+    if (dataUrl) {
+      const { mimeType, bytes } = dataUrlToBytes(dataUrl);
+      encrypted = await encryptRecordBytes(key, {
+        id: BACKGROUND_IMAGE_RECORD_ID,
+        kind: "background-image",
+        bytes: packImage({
+          dataUrl,
+          name: "background",
+          mimeType,
+          size: bytes.byteLength
+        })
+      });
+    }
+
+    const transaction = database.transaction(RECORD_STORE, "readwrite");
+    const store = transaction.objectStore(RECORD_STORE);
+    if (!dataUrl) {
+      store.delete(BACKGROUND_IMAGE_RECORD_ID);
+    } else {
+      store.put(encrypted);
+    }
     await transactionDone(transaction);
   });
 }

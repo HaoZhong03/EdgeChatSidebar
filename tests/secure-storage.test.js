@@ -9,10 +9,12 @@ import {
   garbageCollectSecureStore,
   markSecureCurrentSessionUsageStale,
   readLegacyStorage,
+  readSecureBackgroundImage,
   readSecureConfig,
   readSecureState,
   removeLegacyStorage,
   writeSecureConfig,
+  writeSecureBackgroundImage,
   writeSecureState
 } from "../secure-storage.js";
 
@@ -31,6 +33,29 @@ test("timestamp display preferences are stored as non-sensitive settings", () =>
 test("global font size is stored as a non-sensitive preference", () => {
   assert.equal(PREFERENCE_KEYS.fontSize, "edgeChat.fontSize");
   assert.equal(LEGACY_STORAGE_KEYS.includes("edgeChat.messageFontSize"), true);
+});
+
+test("appearance settings are stored as non-sensitive preferences", () => {
+  assert.equal(PREFERENCE_KEYS.backgroundMode, "edgeChat.backgroundMode");
+  assert.equal(PREFERENCE_KEYS.backgroundColor, "edgeChat.backgroundColor");
+  assert.equal(PREFERENCE_KEYS.composerOpacity, "edgeChat.composerOpacity");
+  assert.equal(PREFERENCE_KEYS.statusbarBlur, "edgeChat.statusbarBlur");
+});
+
+test("custom background images are encrypted outside plain preferences", async () => {
+  const backgroundImage = "data:image/png;base64,cHJpdmF0ZS1iYWNrZ3JvdW5k";
+  await writeSecureBackgroundImage(backgroundImage);
+
+  const database = await openRawDatabase();
+  const transaction = database.transaction("records", "readonly");
+  const records = await getAll(transaction.objectStore("records"));
+  database.close();
+
+  assert.equal(JSON.stringify(records).includes(backgroundImage), false);
+  assert.equal(await readSecureBackgroundImage(), backgroundImage);
+  await writeSecureBackgroundImage("");
+  assert.equal(await readSecureBackgroundImage(), "");
+  await clearAllLocalData();
 });
 
 function openRawDatabase() {

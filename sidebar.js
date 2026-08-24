@@ -19,6 +19,7 @@ import {
   PREFERENCE_KEYS,
   garbageCollectSecureStore,
   readLegacyStorage,
+  readSecureBackgroundImage,
   readSecureConfig,
   readSecureState,
   removeLegacyStorage,
@@ -34,6 +35,11 @@ import {
   DEFAULT_FONT_SIZE,
   normalizeFontSize
 } from "./font-size.js";
+import {
+  DEFAULT_APPEARANCE_SETTINGS,
+  getBackgroundImageTone,
+  normalizeAppearanceSettings
+} from "./appearance.js";
 
 const DEFAULT_THEME = "system";
 
@@ -57,6 +63,7 @@ const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const tokenUsageButton = document.getElementById("tokenUsageButton");
 const tokenUsageDetails = document.getElementById("tokenUsageDetails");
+const appBackground = document.getElementById("appBackground");
 
 const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_IMAGE_MIN_HEIGHT = 124;
@@ -73,6 +80,7 @@ let settings = {
   providerConfigs: createDefaultProviderConfigs(),
   webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
+  ...DEFAULT_APPEARANCE_SETTINGS,
   fontSize: DEFAULT_FONT_SIZE,
   showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
   timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
@@ -300,6 +308,31 @@ function getLatestEditableUserMessageIndex(messages = settings.messages) {
 function applyTheme(theme) {
   const nextTheme = ["light", "dark", "system"].includes(theme) ? theme : DEFAULT_THEME;
   document.documentElement.dataset.theme = nextTheme;
+}
+
+function applyAppearance(value) {
+  const appearance = normalizeAppearanceSettings(value);
+  const rootStyle = document.documentElement.style;
+  rootStyle.setProperty("--composer-panel-opacity", `${appearance.composerOpacity}%`);
+  rootStyle.setProperty("--composer-panel-blur", `${appearance.composerBlur}px`);
+  rootStyle.setProperty("--statusbar-panel-opacity", `${appearance.statusbarOpacity}%`);
+  rootStyle.setProperty("--statusbar-panel-blur", `${appearance.statusbarBlur}px`);
+
+  appBackground.style.backgroundColor = appearance.backgroundMode === "solid"
+    ? appearance.backgroundColor
+    : "var(--bg)";
+  const hasBackgroundImage = appearance.backgroundMode === "image" && Boolean(appearance.backgroundImage);
+  appBackground.style.backgroundImage = hasBackgroundImage
+    ? `url("${appearance.backgroundImage}")`
+    : "none";
+  const backgroundTone = getBackgroundImageTone(appearance.backgroundBrightness);
+  appBackground.style.filter = hasBackgroundImage
+    ? `brightness(${backgroundTone.imageBrightness}%)`
+    : "none";
+  rootStyle.setProperty(
+    "--background-light-overlay-opacity",
+    hasBackgroundImage ? String(backgroundTone.whiteOverlayOpacity) : "0"
+  );
 }
 
 function getMessageText(message) {
@@ -576,10 +609,6 @@ function renderMessages(options = {}) {
   messagesEl.innerHTML = "";
 
   if (settings.messages.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "先在拓展选项的模型 API 页面保存当前模型的 API Key，然后开始对话。";
-    messagesEl.appendChild(empty);
     return;
   }
 
@@ -1124,6 +1153,16 @@ async function loadSettings() {
         ?? legacyData.mimoWebSearchMode
     ),
     theme: preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme || DEFAULT_THEME,
+    ...normalizeAppearanceSettings({
+      backgroundMode: preferenceData[PREFERENCE_KEYS.backgroundMode],
+      backgroundColor: preferenceData[PREFERENCE_KEYS.backgroundColor],
+      backgroundImage: await readSecureBackgroundImage(),
+      backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
+      composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
+      composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
+      statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
+      statusbarBlur: preferenceData[PREFERENCE_KEYS.statusbarBlur]
+    }),
     fontSize: normalizeFontSize(
       preferenceData[PREFERENCE_KEYS.fontSize] ?? legacyData["edgeChat.messageFontSize"]
     ),
@@ -1139,6 +1178,7 @@ async function loadSettings() {
   syncCurrentSessionMessages();
 
   applyTheme(settings.theme);
+  applyAppearance(settings);
   applyGlobalFontSize(settings.fontSize);
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
@@ -1149,9 +1189,10 @@ async function loadSettings() {
 }
 
 async function reloadOptionsConfiguration() {
-  const [preferenceData, secureConfig] = await Promise.all([
+  const [preferenceData, secureConfig, backgroundImage] = await Promise.all([
     storageGet(Object.values(PREFERENCE_KEYS)),
-    readSecureConfig()
+    readSecureConfig(),
+    readSecureBackgroundImage()
   ]);
 
   if (!secureConfig) {
@@ -1176,6 +1217,16 @@ async function reloadOptionsConfiguration() {
   settings.providerConfigs = providerConfigs;
   settings.webSearchMode = normalizeWebSearchMode(preferenceData[PREFERENCE_KEYS.webSearchMode]);
   settings.theme = preferenceData[PREFERENCE_KEYS.theme] || DEFAULT_THEME;
+  Object.assign(settings, normalizeAppearanceSettings({
+    backgroundMode: preferenceData[PREFERENCE_KEYS.backgroundMode],
+    backgroundColor: preferenceData[PREFERENCE_KEYS.backgroundColor],
+    backgroundImage,
+    backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
+    composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
+    composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
+    statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
+    statusbarBlur: preferenceData[PREFERENCE_KEYS.statusbarBlur]
+  }));
   settings.fontSize = normalizeFontSize(preferenceData[PREFERENCE_KEYS.fontSize]);
   settings.showTimestamps = normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]);
   settings.timestampFormat = normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]);
@@ -1184,6 +1235,7 @@ async function reloadOptionsConfiguration() {
   refreshProviderRegistry();
   if (previousSystemPrompt !== settings.systemPrompt) markCurrentUsageStale();
   applyTheme(settings.theme);
+  applyAppearance(settings);
   applyGlobalFontSize(settings.fontSize);
   renderMessages({ preserveScroll: true });
   updateModelSwitchLabel();
