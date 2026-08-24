@@ -33,7 +33,7 @@
               <p class="section-kicker">显示</p>
               <h2 id="appearanceTitle">外观与消息</h2>
             </div>
-            <p>控制侧栏配色和消息时间的显示方式。</p>
+            <p>控制扩展界面的配色、全局字号和消息时间显示。</p>
           </div>
           <div class="settings-card">
             <label class="field-row">
@@ -47,6 +47,16 @@
                 <option value="dark">深色</option>
               </select>
             </label>
+            <div class="field-row">
+              <label class="field-copy" for="fontSizeInput">
+                <strong>全局字号</strong>
+                <small>按比例调整侧栏和拓展选项中的全部文字。</small>
+              </label>
+              <div class="font-size-control">
+                <input id="fontSizeInput" type="range" min="12" max="20" step="1" value="16">
+                <output id="fontSizeValue" for="fontSizeInput" aria-live="polite">16 px</output>
+              </div>
+            </div>
             <div class="field-row">
               <label class="field-copy" for="showTimestampsInput">
                 <strong>显示消息时间戳</strong>

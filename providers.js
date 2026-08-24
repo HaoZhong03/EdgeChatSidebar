@@ -1,4 +1,5 @@
 export const DEFAULT_PROVIDER_ID = "deepseek";
+export const DEEPSEEK_MULTIMODAL_MODEL = "deepseek-v4-flash-vision-exp";
 export const MIMO_MULTIMODAL_MODEL = "mimo-v2.5";
 export const DEEPSEEK_ANTHROPIC_ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages";
 
@@ -13,7 +14,12 @@ export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
     endpoint: "https://api.deepseek.com/chat/completions",
     models: Object.freeze([
       Object.freeze({ id: "deepseek-v4-flash", label: "deepseek-v4-flash" }),
-      Object.freeze({ id: "deepseek-v4-pro", label: "deepseek-v4-pro" })
+      Object.freeze({ id: "deepseek-v4-pro", label: "deepseek-v4-pro" }),
+      Object.freeze({
+        id: DEEPSEEK_MULTIMODAL_MODEL,
+        label: DEEPSEEK_MULTIMODAL_MODEL,
+        capabilities: Object.freeze({ imageInput: true })
+      })
     ]),
     defaultModel: "deepseek-v4-flash",
     auth: Object.freeze({ type: "bearer" }),
@@ -31,7 +37,11 @@ export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
     type: "builtin",
     endpoint: "https://api.xiaomimimo.com/v1/chat/completions",
     models: Object.freeze([
-      Object.freeze({ id: "mimo-v2.5", label: "mimo-v2.5" }),
+      Object.freeze({
+        id: MIMO_MULTIMODAL_MODEL,
+        label: MIMO_MULTIMODAL_MODEL,
+        capabilities: Object.freeze({ imageInput: true })
+      }),
       Object.freeze({ id: "mimo-v2.5-pro", label: "mimo-v2.5-pro" })
     ]),
     defaultModel: "mimo-v2.5",
@@ -40,7 +50,7 @@ export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
       maxOutputField: "max_completion_tokens",
       streamUsage: "implicit",
       thinking: "enabled",
-      imageInput: true,
+      imageInput: false,
       webSearch: true
     })
   })
@@ -180,13 +190,20 @@ export function normalizeProviderConfigs(value, legacyApiKey = "", legacyModel =
 
 export function getProviderProfiles(configs) {
   const normalized = normalizeProviderConfigs(configs);
-  const profiles = Object.values(BUILTIN_PROVIDER_PROFILES).map((profile) => ({
-    ...profile,
-    models: profile.models.map((model) => ({ ...model })),
-    auth: { ...profile.auth, apiKey: normalized[profile.id].apiKey },
-    capabilities: { ...profile.capabilities },
-    model: normalized[profile.id].model
-  }));
+  const profiles = Object.values(BUILTIN_PROVIDER_PROFILES).map((profile) => {
+    const config = normalized[profile.id];
+    const selectedModel = profile.models.find((model) => model.id === config.model);
+    return {
+      ...profile,
+      models: profile.models.map((model) => ({
+        ...model,
+        ...(model.capabilities ? { capabilities: { ...model.capabilities } } : {})
+      })),
+      auth: { ...profile.auth, apiKey: config.apiKey },
+      capabilities: { ...profile.capabilities, ...(selectedModel?.capabilities || {}) },
+      model: config.model
+    };
+  });
 
   for (const config of Object.values(normalized)) {
     if (config.type !== "custom") continue;
@@ -237,7 +254,7 @@ function toApiMessage(message, profile) {
   const text = typeof message?.content === "string" ? message.content : "";
   const images = Array.isArray(message?.images) ? message.images : [];
 
-  if (profile.id === "mimo" && profile.model === MIMO_MULTIMODAL_MODEL && role === "user" && images.length > 0) {
+  if (profile.capabilities.imageInput && role === "user" && images.length > 0) {
     return {
       role,
       content: [
@@ -297,6 +314,19 @@ export function buildChatCompletionRequest(options) {
   return body;
 }
 
+function toAnthropicImageBlock(image) {
+  const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/is.exec(image?.dataUrl || "");
+  if (!match) return null;
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: match[1].toLowerCase(),
+      data: match[2].replace(/\s/g, "")
+    }
+  };
+}
+
 export function buildDeepSeekWebSearchRequest(options) {
   const {
     profile,
@@ -315,9 +345,15 @@ export function buildDeepSeekWebSearchRequest(options) {
       if (cleanString(text)) systemParts.push(cleanString(text));
       continue;
     }
+    const role = message?.role === "assistant" ? "assistant" : "user";
+    const imageBlocks = role === "user" && profile.capabilities.imageInput && Array.isArray(message?.images)
+      ? message.images.map(toAnthropicImageBlock).filter(Boolean)
+      : [];
     apiMessages.push({
-      role: message?.role === "assistant" ? "assistant" : "user",
-      content: text
+      role,
+      content: imageBlocks.length > 0
+        ? [{ type: "text", text: text.trim() || "请分析这张图片。" }, ...imageBlocks]
+        : text
     });
   }
 

@@ -24,6 +24,10 @@ import {
   DEFAULT_TIMESTAMP_FORMAT,
   normalizeTimestampFormat
 } from "./message-timestamps.js";
+import {
+  DEFAULT_FONT_SIZE,
+  normalizeFontSize
+} from "./font-size.js";
 
 const DEFAULT_THEME = "system";
 const DEFAULT_WEB_SEARCH_MODE = "off";
@@ -31,6 +35,8 @@ const THEMES = ["system", "light", "dark"];
 const WEB_SEARCH_MODES = ["off", "auto", "force"];
 
 const themeSelect = document.getElementById("themeSelect");
+const fontSizeInput = document.getElementById("fontSizeInput");
+const fontSizeValue = document.getElementById("fontSizeValue");
 const showTimestampsInput = document.getElementById("showTimestampsInput");
 const timestampFormatSelect = document.getElementById("timestampFormatSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
@@ -58,6 +64,7 @@ let settings = {
   providerConfigs: createDefaultProviderConfigs(),
   webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
+  fontSize: DEFAULT_FONT_SIZE,
   showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
   timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
   systemPrompt: ""
@@ -125,8 +132,21 @@ function updateTimestampFormatControl() {
   timestampFormatSelect.disabled = !showTimestampsInput.checked;
 }
 
+function applyGlobalFontSize(value) {
+  document.documentElement.style.setProperty("--global-font-size", `${normalizeFontSize(value)}px`);
+}
+
+function updateFontSizeControl(value = fontSizeInput.value) {
+  const size = normalizeFontSize(value);
+  fontSizeInput.value = String(size);
+  fontSizeValue.textContent = `${size} px`;
+  applyGlobalFontSize(size);
+}
+
 function syncFormFromSettings() {
   themeSelect.value = settings.theme;
+  fontSizeInput.value = String(settings.fontSize);
+  updateFontSizeControl(settings.fontSize);
   showTimestampsInput.checked = settings.showTimestamps;
   timestampFormatSelect.value = settings.timestampFormat;
   systemPromptInput.value = settings.systemPrompt;
@@ -152,6 +172,7 @@ function syncSettingsFromForm() {
     }
   });
   settings.theme = normalizeTheme(themeSelect.value);
+  settings.fontSize = normalizeFontSize(fontSizeInput.value);
   settings.showTimestamps = showTimestampsInput.checked;
   settings.timestampFormat = normalizeTimestampFormat(timestampFormatSelect.value);
   settings.systemPrompt = systemPromptInput.value.trim();
@@ -179,6 +200,7 @@ async function notifySidebar(resetData = false) {
 async function persistPreferences() {
   await storageSet({
     [PREFERENCE_KEYS.theme]: settings.theme,
+    [PREFERENCE_KEYS.fontSize]: settings.fontSize,
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: getActiveProviderModel(),
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
@@ -332,6 +354,9 @@ async function loadSettings() {
         ?? legacyData.mimoWebSearchMode
     ),
     theme: normalizeTheme(preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme),
+    fontSize: normalizeFontSize(
+      preferenceData[PREFERENCE_KEYS.fontSize] ?? legacyData["edgeChat.messageFontSize"]
+    ),
     showTimestamps: normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]),
     timestampFormat: normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]),
     systemPrompt: typeof secureState.config.systemPrompt === "string" ? secureState.config.systemPrompt : ""
@@ -348,6 +373,11 @@ async function loadSettings() {
 
 themeSelect.addEventListener("change", () => {
   applyTheme(themeSelect.value);
+  setSaveNotice("有未保存的更改");
+});
+
+fontSizeInput.addEventListener("input", () => {
+  updateFontSizeControl();
   setSaveNotice("有未保存的更改");
 });
 
@@ -381,7 +411,7 @@ saveSettingsButton.addEventListener("click", async () => {
 });
 
 resetSettingsButton.addEventListener("click", async () => {
-  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
+  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题、全局字号、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
   if (!confirmed) return;
 
   resetSettingsButton.disabled = true;
@@ -393,6 +423,7 @@ resetSettingsButton.addEventListener("click", async () => {
     providerConfigs: createDefaultProviderConfigs(),
     webSearchMode: DEFAULT_WEB_SEARCH_MODE,
     theme: DEFAULT_THEME,
+    fontSize: DEFAULT_FONT_SIZE,
     showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
     timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
     systemPrompt: ""

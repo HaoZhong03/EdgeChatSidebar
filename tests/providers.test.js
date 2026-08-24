@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEEPSEEK_ANTHROPIC_ENDPOINT,
+  DEEPSEEK_MULTIMODAL_MODEL,
   buildAuthHeaders,
   buildChatCompletionRequest,
   buildDeepSeekAnthropicHeaders,
@@ -19,6 +20,43 @@ import {
   validateCustomEndpoint
 } from "../providers.js";
 
+test("DeepSeek vision model sends images through Chat Completions and Anthropic web search", () => {
+  const configs = createDefaultProviderConfigs();
+  configs.deepseek.model = DEEPSEEK_MULTIMODAL_MODEL;
+  const profile = getProviderProfile(configs, "deepseek");
+  const messages = [{
+    role: "user",
+    content: "look",
+    images: [{ dataUrl: "data:image/png;base64,AA==" }]
+  }];
+
+  assert.equal(profile.model, DEEPSEEK_MULTIMODAL_MODEL);
+  assert.equal(profile.capabilities.imageInput, true);
+  assert.equal(profile.models.some((model) => model.id === DEEPSEEK_MULTIMODAL_MODEL), true);
+  assert.deepEqual(buildChatCompletionRequest({ profile, messages, stream: false }).messages, [{
+    role: "user",
+    content: [
+      { type: "text", text: "look" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA==" } }
+    ]
+  }]);
+  assert.deepEqual(buildDeepSeekWebSearchRequest({
+    profile,
+    messages,
+    stream: true,
+    webSearchMode: "auto"
+  }).messages, [{
+    role: "user",
+    content: [
+      { type: "text", text: "look" },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "AA==" }
+      }
+    ]
+  }]);
+});
+
 test("DeepSeek request follows its Chat Completions profile", () => {
   const configs = createDefaultProviderConfigs();
   configs.deepseek.apiKey = "secret";
@@ -34,6 +72,7 @@ test("DeepSeek request follows its Chat Completions profile", () => {
 
   assert.equal(profile.endpoint, "https://api.deepseek.com/chat/completions");
   assert.equal(profile.capabilities.webSearch, true);
+  assert.equal(profile.capabilities.imageInput, false);
   assert.deepEqual(buildAuthHeaders(profile), { Authorization: "Bearer secret" });
   assert.deepEqual(body, {
     model: "deepseek-v4-flash",
@@ -113,6 +152,14 @@ test("MiMo uses api-key, max_completion_tokens, implicit stream usage, image and
   assert.deepEqual(body.thinking, { type: "enabled" });
   assert.equal(body.messages[0].content[1].type, "image_url");
   assert.deepEqual(body.tools, [{ type: "web_search", max_keyword: 3, force_search: true, limit: 1 }]);
+
+  configs.mimo.model = "mimo-v2.5-pro";
+  const textOnlyProfile = getProviderProfile(configs, "mimo");
+  assert.equal(textOnlyProfile.capabilities.imageInput, false);
+  assert.equal(buildChatCompletionRequest({
+    profile: textOnlyProfile,
+    messages: [{ role: "user", content: "look", images: [{ dataUrl: "data:image/png;base64,AA==" }] }]
+  }).messages[0].content, "look");
 });
 
 test("legacy MiMo endpoint overrides cannot replace the fixed official endpoint", () => {

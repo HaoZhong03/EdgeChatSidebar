@@ -20,13 +20,16 @@ test("manifest registers the dedicated options page", async () => {
 });
 
 test("settings controls live on the options page and the sidebar opens it", async () => {
-  const [optionsHtml, sidebarHtml, sidebarScript] = await Promise.all([
+  const [optionsHtml, optionsCss, sidebarHtml, sidebarScript, sidebarCss] = await Promise.all([
     readFile(new URL("../options.html", import.meta.url), "utf8"),
+    readFile(new URL("../options.css", import.meta.url), "utf8"),
     readFile(new URL("../sidebar.html", import.meta.url), "utf8"),
-    readFile(new URL("../sidebar.js", import.meta.url), "utf8")
+    readFile(new URL("../sidebar.js", import.meta.url), "utf8"),
+    readFile(new URL("../sidebar.css", import.meta.url), "utf8")
   ]);
   const settingControlIds = [
     "themeSelect",
+    "fontSizeInput",
     "showTimestampsInput",
     "timestampFormatSelect",
     "systemPromptInput",
@@ -46,4 +49,6 @@ test("settings controls live on the options page and the sidebar opens it", asyn
   }
   assert.match(sidebarHtml, /aria-label="打开拓展选项"/);
   assert.match(sidebarScript, /chrome\.runtime\.openOptionsPage\(\)/);
+  assert.match(optionsCss, /font-size:\s*var\(--global-font-size\)/);
+  assert.match(sidebarCss, /font-size:\s*var\(--global-font-size\)/);
 });

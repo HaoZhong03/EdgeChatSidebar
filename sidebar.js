@@ -1,7 +1,6 @@
 import {
   DEEPSEEK_ANTHROPIC_ENDPOINT,
   DEFAULT_PROVIDER_ID,
-  MIMO_MULTIMODAL_MODEL,
   buildAuthHeaders,
   buildChatCompletionRequest,
   buildDeepSeekAnthropicHeaders,
@@ -31,6 +30,10 @@ import {
   formatMessageTimestamp,
   normalizeTimestampFormat
 } from "./message-timestamps.js";
+import {
+  DEFAULT_FONT_SIZE,
+  normalizeFontSize
+} from "./font-size.js";
 
 const DEFAULT_THEME = "system";
 
@@ -70,6 +73,7 @@ let settings = {
   providerConfigs: createDefaultProviderConfigs(),
   webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
+  fontSize: DEFAULT_FONT_SIZE,
   showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
   timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
   systemPrompt: "",
@@ -108,6 +112,7 @@ async function persistPreferences() {
   const activeConfig = settings.providerConfigs[settings.activeProvider];
   await storageSet({
     [PREFERENCE_KEYS.theme]: settings.theme,
+    [PREFERENCE_KEYS.fontSize]: settings.fontSize,
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: activeConfig?.model || "",
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
@@ -145,6 +150,10 @@ function normalizeWebSearchMode(value) {
 
 function normalizeShowTimestamps(value) {
   return typeof value === "boolean" ? value : DEFAULT_SHOW_TIMESTAMPS;
+}
+
+function applyGlobalFontSize(value) {
+  document.documentElement.style.setProperty("--global-font-size", `${normalizeFontSize(value)}px`);
 }
 
 function updateModelSwitchLabel(status = "") {
@@ -334,8 +343,8 @@ function normalizeMessage(message) {
   };
 }
 
-function isMimoMultimodalConfig(provider, config) {
-  return provider.id === "mimo" && config.model === MIMO_MULTIMODAL_MODEL;
+function supportsImageInput(provider) {
+  return provider.capabilities.imageInput;
 }
 
 function formatFileSize(bytes) {
@@ -1115,6 +1124,9 @@ async function loadSettings() {
         ?? legacyData.mimoWebSearchMode
     ),
     theme: preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme || DEFAULT_THEME,
+    fontSize: normalizeFontSize(
+      preferenceData[PREFERENCE_KEYS.fontSize] ?? legacyData["edgeChat.messageFontSize"]
+    ),
     showTimestamps: normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]),
     timestampFormat: normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]),
     systemPrompt: typeof secureState.config.systemPrompt === "string" ? secureState.config.systemPrompt : "",
@@ -1127,6 +1139,7 @@ async function loadSettings() {
   syncCurrentSessionMessages();
 
   applyTheme(settings.theme);
+  applyGlobalFontSize(settings.fontSize);
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
   await Promise.all([persistSecureState(), persistPreferences()]);
@@ -1163,6 +1176,7 @@ async function reloadOptionsConfiguration() {
   settings.providerConfigs = providerConfigs;
   settings.webSearchMode = normalizeWebSearchMode(preferenceData[PREFERENCE_KEYS.webSearchMode]);
   settings.theme = preferenceData[PREFERENCE_KEYS.theme] || DEFAULT_THEME;
+  settings.fontSize = normalizeFontSize(preferenceData[PREFERENCE_KEYS.fontSize]);
   settings.showTimestamps = normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]);
   settings.timestampFormat = normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]);
   settings.systemPrompt = typeof secureConfig.systemPrompt === "string" ? secureConfig.systemPrompt : "";
@@ -1170,6 +1184,7 @@ async function reloadOptionsConfiguration() {
   refreshProviderRegistry();
   if (previousSystemPrompt !== settings.systemPrompt) markCurrentUsageStale();
   applyTheme(settings.theme);
+  applyGlobalFontSize(settings.fontSize);
   renderMessages({ preserveScroll: true });
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
@@ -1617,8 +1632,8 @@ function validateOutgoingMessage(images) {
   const provider = getActiveProvider();
   const providerConfig = getActiveProviderConfig();
 
-  if (images.length > 0 && !isMimoMultimodalConfig(provider, providerConfig)) {
-    appendMessage("system", `粘贴图片仅支持小米 MiMo 的 ${MIMO_MULTIMODAL_MODEL} 模型，请切换模型后再发送。`);
+  if (images.length > 0 && !supportsImageInput(provider)) {
+    appendMessage("system", `当前模型 ${provider.model} 不支持图片输入，请切换到视觉模型后再发送。`);
     return false;
   }
 
