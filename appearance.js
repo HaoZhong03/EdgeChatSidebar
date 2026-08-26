@@ -24,10 +24,8 @@ export const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
   backgroundColor: PRESET_BACKGROUND_COLORS[0],
   backgroundImage: "",
   backgroundBrightness: 100,
-  composerOpacity: 100,
-  composerBlur: 0,
-  statusbarOpacity: 100,
-  statusbarBlur: 0
+  dockOpacity: 100,
+  dockBlur: 0
 });
 
 export function normalizeBackgroundMode(value) {
@@ -48,6 +46,24 @@ function normalizeNumber(value, minimum, maximum, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(maximum, Math.max(minimum, Math.round(number)));
+}
+
+function normalizeUnifiedDockValue(value, composerValue, statusbarValue, minimum, maximum, fallback) {
+  if (value !== undefined && value !== null) {
+    return normalizeNumber(value, minimum, maximum, fallback);
+  }
+
+  const normalizedComposer = composerValue === undefined || composerValue === null
+    ? null
+    : normalizeNumber(composerValue, minimum, maximum, fallback);
+  const normalizedStatusbar = statusbarValue === undefined || statusbarValue === null
+    ? null
+    : normalizeNumber(statusbarValue, minimum, maximum, fallback);
+
+  if (normalizedComposer === fallback && normalizedStatusbar !== null && normalizedStatusbar !== fallback) {
+    return normalizedStatusbar;
+  }
+  return normalizedComposer ?? normalizedStatusbar ?? fallback;
 }
 
 export function normalizeBackgroundImage(value) {
@@ -84,29 +100,21 @@ export function normalizeAppearanceSettings(value = {}) {
       150,
       DEFAULT_APPEARANCE_SETTINGS.backgroundBrightness
     ),
-    composerOpacity: normalizeNumber(
+    dockOpacity: normalizeUnifiedDockValue(
+      value.dockOpacity,
       value.composerOpacity,
-      0,
-      100,
-      DEFAULT_APPEARANCE_SETTINGS.composerOpacity
-    ),
-    composerBlur: normalizeNumber(
-      value.composerBlur,
-      0,
-      30,
-      DEFAULT_APPEARANCE_SETTINGS.composerBlur
-    ),
-    statusbarOpacity: normalizeNumber(
       value.statusbarOpacity,
       0,
       100,
-      DEFAULT_APPEARANCE_SETTINGS.statusbarOpacity
+      DEFAULT_APPEARANCE_SETTINGS.dockOpacity
     ),
-    statusbarBlur: normalizeNumber(
+    dockBlur: normalizeUnifiedDockValue(
+      value.dockBlur,
+      value.composerBlur,
       value.statusbarBlur,
       0,
       30,
-      DEFAULT_APPEARANCE_SETTINGS.statusbarBlur
+      DEFAULT_APPEARANCE_SETTINGS.dockBlur
     )
   };
 }

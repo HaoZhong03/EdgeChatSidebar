@@ -33,10 +33,8 @@ test("settings controls live on the options page and the sidebar opens it", asyn
     "backgroundColorInput",
     "backgroundImageInput",
     "backgroundBrightnessInput",
-    "composerOpacityInput",
-    "composerBlurInput",
-    "statusbarOpacityInput",
-    "statusbarBlurInput",
+    "dockOpacityInput",
+    "dockBlurInput",
     "fontSizeInput",
     "showTimestampsInput",
     "timestampFormatSelect",
@@ -60,11 +58,19 @@ test("settings controls live on the options page and the sidebar opens it", asyn
   assert.doesNotMatch(sidebarScript, /先在拓展选项的模型 API 页面保存当前模型的 API Key，然后开始对话。/);
   assert.match(sidebarHtml, /id="appBackground"/);
   assert.match(sidebarHtml, /class="app-background-overlay"/);
+  assert.match(sidebarHtml, /class="bottom-dock"/);
   assert.match(sidebarCss, /background-size:\s*cover/);
-  assert.match(sidebarCss, /scroll-padding-bottom:\s*calc\(/);
-  assert.match(sidebarCss, /var\(--message-footer-clearance\)/);
-  assert.match(sidebarCss, /backdrop-filter:\s*blur\(var\(--composer-panel-blur\)\)/);
-  assert.match(sidebarCss, /backdrop-filter:\s*blur\(var\(--statusbar-panel-blur\)\)/);
+  assert.match(sidebarCss, /\.bottom-dock\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?right:\s*16px;[\s\S]*?left:\s*16px;/);
+  assert.match(sidebarCss, /\.messages\s*\{[\s\S]*?padding:[\s\S]*?var\(--composer-height/);
+  assert.match(sidebarCss, /scrollbar-gutter:\s*stable/);
+  assert.match(sidebarCss, /::-webkit-scrollbar-thumb/);
+  assert.match(optionsCss, /::-webkit-scrollbar-thumb/);
+  assert.match(sidebarCss, /backdrop-filter:\s*blur\(var\(--bottom-dock-blur\)\)/);
+  const statusbarRule = sidebarCss.match(/\.statusbar\s*\{([^}]*)\}/)?.[1] || "";
+  assert.doesNotMatch(statusbarRule, /position:\s*fixed/);
+  assert.match(sidebarScript, /editButton\.textContent = "编辑"/);
+  assert.doesNotMatch(sidebarScript, /editButton\.textContent = "✎"/);
+  assert.match(sidebarCss, /\.message-edit\s*\{[\s\S]*?font-size:\s*0\.6875rem;[\s\S]*?font-weight:\s*400;[\s\S]*?line-height:\s*1;/);
   assert.match(optionsCss, /font-size:\s*var\(--global-font-size\)/);
   assert.match(sidebarCss, /font-size:\s*var\(--global-font-size\)/);
 });
@@ -79,12 +85,13 @@ test("the about section shows the current release and maintainer details", async
   const manifest = JSON.parse(manifestText);
   const packageMetadata = JSON.parse(packageText);
 
-  assert.equal(manifest.version, "2.0.0");
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(packageMetadata.version, manifest.version);
   assert.equal(packageMetadata.author, "HaoZhong03");
   assert.match(optionsHtml, /href="#about"/);
   assert.match(optionsHtml, /id="about"/);
-  assert.match(optionsHtml, /id="extensionVersion"[^>]*>2\.0\.0</);
+  const escapedVersion = manifest.version.replaceAll(".", "\\.");
+  assert.match(optionsHtml, new RegExp(`id="extensionVersion"[^>]*>${escapedVersion}<`));
   assert.match(optionsHtml, />HaoZhong03</);
   assert.match(optionsHtml, /href="mailto:haozhong03@foxmail\.com"/);
   assert.match(optionsScript, /chrome\.runtime\.getManifest\(\)\.version/);

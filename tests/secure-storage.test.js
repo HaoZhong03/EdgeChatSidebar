@@ -38,6 +38,8 @@ test("global font size is stored as a non-sensitive preference", () => {
 test("appearance settings are stored as non-sensitive preferences", () => {
   assert.equal(PREFERENCE_KEYS.backgroundMode, "edgeChat.backgroundMode");
   assert.equal(PREFERENCE_KEYS.backgroundColor, "edgeChat.backgroundColor");
+  assert.equal(PREFERENCE_KEYS.dockOpacity, "edgeChat.dockOpacity");
+  assert.equal(PREFERENCE_KEYS.dockBlur, "edgeChat.dockBlur");
   assert.equal(PREFERENCE_KEYS.composerOpacity, "edgeChat.composerOpacity");
   assert.equal(PREFERENCE_KEYS.statusbarBlur, "edgeChat.statusbarBlur");
 });

@@ -124,6 +124,8 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: activeConfig?.model || "",
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
+    [PREFERENCE_KEYS.dockOpacity]: settings.dockOpacity,
+    [PREFERENCE_KEYS.dockBlur]: settings.dockBlur,
     [PREFERENCE_KEYS.showTimestamps]: settings.showTimestamps,
     [PREFERENCE_KEYS.timestampFormat]: settings.timestampFormat,
     [PREFERENCE_KEYS.schemaVersion]: 1
@@ -313,10 +315,8 @@ function applyTheme(theme) {
 function applyAppearance(value) {
   const appearance = normalizeAppearanceSettings(value);
   const rootStyle = document.documentElement.style;
-  rootStyle.setProperty("--composer-panel-opacity", `${appearance.composerOpacity}%`);
-  rootStyle.setProperty("--composer-panel-blur", `${appearance.composerBlur}px`);
-  rootStyle.setProperty("--statusbar-panel-opacity", `${appearance.statusbarOpacity}%`);
-  rootStyle.setProperty("--statusbar-panel-blur", `${appearance.statusbarBlur}px`);
+  rootStyle.setProperty("--bottom-dock-opacity", `${appearance.dockOpacity}%`);
+  rootStyle.setProperty("--bottom-dock-blur", `${appearance.dockBlur}px`);
 
   appBackground.style.backgroundColor = appearance.backgroundMode === "solid"
     ? appearance.backgroundColor
@@ -931,7 +931,7 @@ function createMessageFooter(options = {}) {
     editButton.dataset.messageIndex = String(options.messageIndex);
     editButton.setAttribute("aria-label", "编辑并重新发送这条消息");
     editButton.setAttribute("title", "编辑并重新发送");
-    editButton.textContent = "✎";
+    editButton.textContent = "编辑";
     footer.appendChild(editButton);
   }
 
@@ -1158,6 +1158,8 @@ async function loadSettings() {
       backgroundColor: preferenceData[PREFERENCE_KEYS.backgroundColor],
       backgroundImage: await readSecureBackgroundImage(),
       backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
+      dockOpacity: preferenceData[PREFERENCE_KEYS.dockOpacity],
+      dockBlur: preferenceData[PREFERENCE_KEYS.dockBlur],
       composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
       composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
       statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
@@ -1222,6 +1224,8 @@ async function reloadOptionsConfiguration() {
     backgroundColor: preferenceData[PREFERENCE_KEYS.backgroundColor],
     backgroundImage,
     backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
+    dockOpacity: preferenceData[PREFERENCE_KEYS.dockOpacity],
+    dockBlur: preferenceData[PREFERENCE_KEYS.dockBlur],
     composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
     composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
     statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],

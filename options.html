@@ -97,37 +97,19 @@
             </div>
             <div class="field-row">
               <span class="field-copy">
-                <strong>对话输入区效果</strong>
-                <small>调整输入区容器背景；其中的输入框和发送按钮不受影响。</small>
+                <strong>底部卡片效果</strong>
+                <small>统一调整对话输入区与状态栏的背景透明度和高斯模糊。</small>
               </span>
               <div class="dual-range-control">
                 <label class="compact-range-control">
                   <span>不透明度</span>
-                  <input id="composerOpacityInput" type="range" min="0" max="100" step="5" value="100">
-                  <output id="composerOpacityValue" for="composerOpacityInput">100%</output>
+                  <input id="dockOpacityInput" type="range" min="0" max="100" step="5" value="100">
+                  <output id="dockOpacityValue" for="dockOpacityInput">100%</output>
                 </label>
                 <label class="compact-range-control">
                   <span>高斯模糊</span>
-                  <input id="composerBlurInput" type="range" min="0" max="30" step="1" value="0">
-                  <output id="composerBlurValue" for="composerBlurInput">0 px</output>
-                </label>
-              </div>
-            </div>
-            <div class="field-row">
-              <span class="field-copy">
-                <strong>状态栏效果</strong>
-                <small>调整状态栏容器背景；模型、用量和操作按钮不受影响。</small>
-              </span>
-              <div class="dual-range-control">
-                <label class="compact-range-control">
-                  <span>不透明度</span>
-                  <input id="statusbarOpacityInput" type="range" min="0" max="100" step="5" value="100">
-                  <output id="statusbarOpacityValue" for="statusbarOpacityInput">100%</output>
-                </label>
-                <label class="compact-range-control">
-                  <span>高斯模糊</span>
-                  <input id="statusbarBlurInput" type="range" min="0" max="30" step="1" value="0">
-                  <output id="statusbarBlurValue" for="statusbarBlurInput">0 px</output>
+                  <input id="dockBlurInput" type="range" min="0" max="30" step="1" value="0">
+                  <output id="dockBlurValue" for="dockBlurInput">0 px</output>
                 </label>
               </div>
             </div>
@@ -305,7 +287,7 @@
                 <strong>版本号</strong>
                 <small>当前安装的扩展版本。</small>
               </span>
-              <span id="extensionVersion" class="about-value">2.0.0</span>
+              <span id="extensionVersion" class="about-value">2.1.0</span>
             </div>
             <div class="field-row">
               <span class="field-copy">

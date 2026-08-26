@@ -19,19 +19,39 @@ test("appearance settings normalize colors and bounded visual effects", () => {
     backgroundMode: "solid",
     backgroundColor: "102030",
     backgroundBrightness: 999,
-    composerOpacity: -10,
-    composerBlur: 13.6,
-    statusbarOpacity: "65",
-    statusbarBlur: 99
+    dockOpacity: -10,
+    dockBlur: 99
   }), {
     ...DEFAULT_APPEARANCE_SETTINGS,
     backgroundMode: "solid",
     backgroundColor: "#102030",
     backgroundBrightness: 150,
-    composerOpacity: 0,
-    composerBlur: 14,
-    statusbarOpacity: 65,
-    statusbarBlur: 30
+    dockOpacity: 0,
+    dockBlur: 30
+  });
+});
+
+test("legacy independent panels migrate into one bottom dock effect", () => {
+  assert.deepEqual(normalizeAppearanceSettings({
+    composerOpacity: 100,
+    composerBlur: 0,
+    statusbarOpacity: "65",
+    statusbarBlur: 14
+  }), {
+    ...DEFAULT_APPEARANCE_SETTINGS,
+    dockOpacity: 65,
+    dockBlur: 14
+  });
+
+  assert.deepEqual(normalizeAppearanceSettings({
+    composerOpacity: 45,
+    composerBlur: 8,
+    statusbarOpacity: 70,
+    statusbarBlur: 16
+  }), {
+    ...DEFAULT_APPEARANCE_SETTINGS,
+    dockOpacity: 45,
+    dockBlur: 8
   });
 });
 

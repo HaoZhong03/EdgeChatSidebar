@@ -15,6 +15,9 @@ export const PREFERENCE_KEYS = Object.freeze({
   backgroundMode: "edgeChat.backgroundMode",
   backgroundColor: "edgeChat.backgroundColor",
   backgroundBrightness: "edgeChat.backgroundBrightness",
+  dockOpacity: "edgeChat.dockOpacity",
+  dockBlur: "edgeChat.dockBlur",
+  // Retained so v2.0 settings can be migrated into the unified bottom card.
   composerOpacity: "edgeChat.composerOpacity",
   composerBlur: "edgeChat.composerBlur",
   statusbarOpacity: "edgeChat.statusbarOpacity",

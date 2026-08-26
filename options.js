@@ -60,14 +60,10 @@ const backgroundImagePreviewImage = document.getElementById("backgroundImagePrev
 const removeBackgroundImageButton = document.getElementById("removeBackgroundImageButton");
 const backgroundBrightnessInput = document.getElementById("backgroundBrightnessInput");
 const backgroundBrightnessValue = document.getElementById("backgroundBrightnessValue");
-const composerOpacityInput = document.getElementById("composerOpacityInput");
-const composerOpacityValue = document.getElementById("composerOpacityValue");
-const composerBlurInput = document.getElementById("composerBlurInput");
-const composerBlurValue = document.getElementById("composerBlurValue");
-const statusbarOpacityInput = document.getElementById("statusbarOpacityInput");
-const statusbarOpacityValue = document.getElementById("statusbarOpacityValue");
-const statusbarBlurInput = document.getElementById("statusbarBlurInput");
-const statusbarBlurValue = document.getElementById("statusbarBlurValue");
+const dockOpacityInput = document.getElementById("dockOpacityInput");
+const dockOpacityValue = document.getElementById("dockOpacityValue");
+const dockBlurInput = document.getElementById("dockBlurInput");
+const dockBlurValue = document.getElementById("dockBlurValue");
 const fontSizeInput = document.getElementById("fontSizeInput");
 const fontSizeValue = document.getElementById("fontSizeValue");
 const showTimestampsInput = document.getElementById("showTimestampsInput");
@@ -198,10 +194,8 @@ function updateAppearanceControls() {
   backgroundBrightnessSettings.hidden = mode !== "image";
   updateBackgroundImagePreview();
   updateRangeOutput(backgroundBrightnessInput, backgroundBrightnessValue, "%");
-  updateRangeOutput(composerOpacityInput, composerOpacityValue, "%");
-  updateRangeOutput(composerBlurInput, composerBlurValue, " px");
-  updateRangeOutput(statusbarOpacityInput, statusbarOpacityValue, "%");
-  updateRangeOutput(statusbarBlurInput, statusbarBlurValue, " px");
+  updateRangeOutput(dockOpacityInput, dockOpacityValue, "%");
+  updateRangeOutput(dockBlurInput, dockBlurValue, " px");
 }
 
 function renderPresetColors() {
@@ -247,10 +241,8 @@ function syncFormFromSettings() {
   backgroundModeSelect.value = settings.backgroundMode;
   setBackgroundColorControls(settings.backgroundColor);
   backgroundBrightnessInput.value = String(settings.backgroundBrightness);
-  composerOpacityInput.value = String(settings.composerOpacity);
-  composerBlurInput.value = String(settings.composerBlur);
-  statusbarOpacityInput.value = String(settings.statusbarOpacity);
-  statusbarBlurInput.value = String(settings.statusbarBlur);
+  dockOpacityInput.value = String(settings.dockOpacity);
+  dockBlurInput.value = String(settings.dockBlur);
   fontSizeInput.value = String(settings.fontSize);
   updateFontSizeControl(settings.fontSize);
   showTimestampsInput.checked = settings.showTimestamps;
@@ -276,10 +268,8 @@ function syncSettingsFromForm() {
     backgroundMode: backgroundModeSelect.value,
     backgroundColor: backgroundColorInput.value,
     backgroundBrightness: backgroundBrightnessInput.value,
-    composerOpacity: composerOpacityInput.value,
-    composerBlur: composerBlurInput.value,
-    statusbarOpacity: statusbarOpacityInput.value,
-    statusbarBlur: statusbarBlurInput.value
+    dockOpacity: dockOpacityInput.value,
+    dockBlur: dockBlurInput.value
   });
   if (appearance.backgroundMode === "image" && !appearance.backgroundImage) {
     throw new Error("请选择一张有效的背景图片，或改用默认/纯色背景。");
@@ -330,10 +320,8 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.backgroundMode]: settings.backgroundMode,
     [PREFERENCE_KEYS.backgroundColor]: settings.backgroundColor,
     [PREFERENCE_KEYS.backgroundBrightness]: settings.backgroundBrightness,
-    [PREFERENCE_KEYS.composerOpacity]: settings.composerOpacity,
-    [PREFERENCE_KEYS.composerBlur]: settings.composerBlur,
-    [PREFERENCE_KEYS.statusbarOpacity]: settings.statusbarOpacity,
-    [PREFERENCE_KEYS.statusbarBlur]: settings.statusbarBlur,
+    [PREFERENCE_KEYS.dockOpacity]: settings.dockOpacity,
+    [PREFERENCE_KEYS.dockBlur]: settings.dockBlur,
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: getActiveProviderModel(),
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
@@ -493,6 +481,8 @@ async function loadSettings() {
       backgroundColor: preferenceData[PREFERENCE_KEYS.backgroundColor],
       backgroundImage: await readSecureBackgroundImage(),
       backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
+      dockOpacity: preferenceData[PREFERENCE_KEYS.dockOpacity],
+      dockBlur: preferenceData[PREFERENCE_KEYS.dockBlur],
       composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
       composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
       statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
@@ -586,10 +576,8 @@ removeBackgroundImageButton.addEventListener("click", () => {
 
 for (const [input, output, suffix] of [
   [backgroundBrightnessInput, backgroundBrightnessValue, "%"],
-  [composerOpacityInput, composerOpacityValue, "%"],
-  [composerBlurInput, composerBlurValue, " px"],
-  [statusbarOpacityInput, statusbarOpacityValue, "%"],
-  [statusbarBlurInput, statusbarBlurValue, " px"]
+  [dockOpacityInput, dockOpacityValue, "%"],
+  [dockBlurInput, dockBlurValue, " px"]
 ]) {
   input.addEventListener("input", () => {
     updateRangeOutput(input, output, suffix);
