@@ -1,7 +1,7 @@
 export const BACKGROUND_MODES = Object.freeze(["default", "solid", "image"]);
 
 export const PRESET_BACKGROUND_COLORS = Object.freeze([
-  "#F4F7FB",
+  "#F5F5F5",
   "#EAF2FF",
   "#F3F0FF",
   "#EAF8F1",
@@ -80,7 +80,7 @@ export function getBackgroundImageTone(value) {
   const brightness = normalizeNumber(
     value,
     20,
-    150,
+    200,
     DEFAULT_APPEARANCE_SETTINGS.backgroundBrightness
   );
   return {
@@ -97,7 +97,7 @@ export function normalizeAppearanceSettings(value = {}) {
     backgroundBrightness: normalizeNumber(
       value.backgroundBrightness,
       20,
-      150,
+      200,
       DEFAULT_APPEARANCE_SETTINGS.backgroundBrightness
     ),
     dockOpacity: normalizeUnifiedDockValue(

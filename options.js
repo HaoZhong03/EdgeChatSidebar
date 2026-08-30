@@ -40,6 +40,12 @@ import {
   normalizeBackgroundImage,
   normalizeHexColor
 } from "./appearance.js";
+import {
+  UPDATE_PERMISSION_ORIGINS,
+  compareVersions,
+  fetchLatestVersion,
+  installLocalUpdate
+} from "./updater.js";
 
 const DEFAULT_THEME = "system";
 const DEFAULT_WEB_SEARCH_MODE = "off";
@@ -85,6 +91,12 @@ const cleanupCacheButton = document.getElementById("cleanupCacheButton");
 const clearAllDataButton = document.getElementById("clearAllDataButton");
 const storageNotice = document.getElementById("storageNotice");
 const extensionVersion = document.getElementById("extensionVersion");
+const updateDialog = document.getElementById("updateDialog");
+const closeUpdateDialogButton = document.getElementById("closeUpdateDialogButton");
+const updateCurrentVersion = document.getElementById("updateCurrentVersion");
+const updateLatestVersion = document.getElementById("updateLatestVersion");
+const updateStatus = document.getElementById("updateStatus");
+const installUpdateButton = document.getElementById("installUpdateButton");
 const resetSettingsButton = document.getElementById("resetSettingsButton");
 const saveSettingsButton = document.getElementById("saveSettingsButton");
 const saveNotice = document.getElementById("saveNotice");
@@ -100,6 +112,7 @@ let settings = {
   timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
   systemPrompt: ""
 };
+let availableUpdate = null;
 
 function storageGet(keys) {
   return globalThis.chrome?.storage?.local ? chrome.storage.local.get(keys) : Promise.resolve({});
@@ -153,6 +166,42 @@ function setNotice(element, message) {
 function setSaveNotice(message, type = "") {
   saveNotice.textContent = message;
   saveNotice.className = `save-notice${type ? ` ${type}` : ""}`;
+}
+
+function setUpdateStatus(message, type = "") {
+  updateStatus.textContent = message;
+  updateStatus.className = `update-status${type ? ` ${type}` : ""}`;
+}
+
+async function checkForUpdates() {
+  const currentManifest = chrome.runtime.getManifest();
+  availableUpdate = null;
+  updateCurrentVersion.textContent = currentManifest.version;
+  updateLatestVersion.textContent = "检查中";
+  installUpdateButton.hidden = true;
+  installUpdateButton.disabled = false;
+  installUpdateButton.textContent = "一键更新";
+  setUpdateStatus("正在连接 GitHub 检查更新……");
+
+  try {
+    const granted = await chrome.permissions.request({ origins: [...UPDATE_PERMISSION_ORIGINS] });
+    if (!granted) throw new Error("未授予访问 GitHub 的权限，无法检查更新。");
+    const release = await fetchLatestVersion();
+    updateLatestVersion.textContent = release.version;
+    const comparison = compareVersions(release.version, currentManifest.version);
+    if (comparison > 0) {
+      availableUpdate = release;
+      installUpdateButton.hidden = false;
+      setUpdateStatus(`发现新版本 ${release.version}，可以更新本地扩展。`, "success");
+    } else if (comparison === 0) {
+      setUpdateStatus("当前已是最新版本。", "success");
+    } else {
+      setUpdateStatus("当前安装的版本比公开版本更新，无需更新。", "success");
+    }
+  } catch (error) {
+    updateLatestVersion.textContent = "检查失败";
+    setUpdateStatus(error.message || "检查更新失败，请稍后重试。", "error");
+  }
 }
 
 function applyTheme(theme) {
@@ -792,6 +841,63 @@ clearAllDataButton.addEventListener("click", async () => {
   } catch (error) {
     setNotice(storageNotice, `清空失败：${error.message}`);
     clearAllDataButton.disabled = false;
+  }
+});
+
+extensionVersion.addEventListener("click", () => {
+  if (!updateDialog.open) updateDialog.showModal();
+  checkForUpdates();
+});
+
+closeUpdateDialogButton.addEventListener("click", () => updateDialog.close());
+
+updateDialog.addEventListener("click", (event) => {
+  if (event.target === updateDialog && !installUpdateButton.disabled) updateDialog.close();
+});
+
+updateDialog.addEventListener("cancel", (event) => {
+  if (installUpdateButton.disabled) event.preventDefault();
+});
+
+installUpdateButton.addEventListener("click", async () => {
+  if (!availableUpdate) return;
+  if (typeof window.showDirectoryPicker !== "function") {
+    setUpdateStatus("当前 Edge 版本不支持写入本地扩展目录，请升级浏览器后重试。", "error");
+    return;
+  }
+
+  let directoryHandle;
+  try {
+    directoryHandle = await window.showDirectoryPicker({
+      id: "edge-chat-sidebar-update",
+      mode: "readwrite"
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      setUpdateStatus("已取消选择，未更改本地版本。");
+      return;
+    }
+    setUpdateStatus(`无法打开扩展文件夹：${error.message}`, "error");
+    return;
+  }
+
+  installUpdateButton.disabled = true;
+  closeUpdateDialogButton.disabled = true;
+  try {
+    await installLocalUpdate({
+      directoryHandle,
+      release: availableUpdate,
+      currentManifest: chrome.runtime.getManifest(),
+      onProgress: (message) => setUpdateStatus(message)
+    });
+    updateCurrentVersion.textContent = availableUpdate.version;
+    installUpdateButton.textContent = "更新完成";
+    setUpdateStatus(`已更新到 ${availableUpdate.version}，正在重新加载扩展……`, "success");
+    setTimeout(() => chrome.runtime.reload(), 900);
+  } catch (error) {
+    setUpdateStatus(error.message || "更新失败，请稍后重试。", "error");
+    installUpdateButton.disabled = false;
+    closeUpdateDialogButton.disabled = false;
   }
 });
 

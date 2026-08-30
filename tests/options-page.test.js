@@ -53,6 +53,7 @@ test("settings controls live on the options page and the sidebar opens it", asyn
     assert.match(optionsHtml, new RegExp(`id=["']${id}["']`));
     assert.doesNotMatch(sidebarHtml, new RegExp(`id=["']${id}["']`));
   }
+  assert.match(optionsHtml, /id="backgroundBrightnessInput"[^>]*max="200"/);
   assert.match(sidebarHtml, /aria-label="打开拓展选项"/);
   assert.match(sidebarScript, /chrome\.runtime\.openOptionsPage\(\)/);
   assert.doesNotMatch(sidebarScript, /先在拓展选项的模型 API 页面保存当前模型的 API Key，然后开始对话。/);
@@ -94,5 +95,10 @@ test("the about section shows the current release and maintainer details", async
   assert.match(optionsHtml, new RegExp(`id="extensionVersion"[^>]*>${escapedVersion}<`));
   assert.match(optionsHtml, />HaoZhong03</);
   assert.match(optionsHtml, /href="mailto:haozhong03@foxmail\.com"/);
+  assert.match(optionsHtml, /id="extensionVersion"[^>]*aria-haspopup="dialog"/);
+  assert.match(optionsHtml, /id="updateDialog"/);
+  assert.match(optionsHtml, /id="installUpdateButton"/);
   assert.match(optionsScript, /chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(optionsScript, /fetchLatestVersion\(\)/);
+  assert.match(optionsScript, /installLocalUpdate\(/);
 });

@@ -25,7 +25,7 @@ test("appearance settings normalize colors and bounded visual effects", () => {
     ...DEFAULT_APPEARANCE_SETTINGS,
     backgroundMode: "solid",
     backgroundColor: "#102030",
-    backgroundBrightness: 150,
+    backgroundBrightness: 200,
     dockOpacity: 0,
     dockBlur: 30
   });
@@ -67,6 +67,10 @@ test("background tone uses a white overlay instead of over-brightening the image
   assert.deepEqual(getBackgroundImageTone(150), {
     imageBrightness: 100,
     whiteOverlayOpacity: 0.5
+  });
+  assert.deepEqual(getBackgroundImageTone(200), {
+    imageBrightness: 100,
+    whiteOverlayOpacity: 1
   });
 });
 

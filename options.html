@@ -67,8 +67,8 @@
               <div class="color-control">
                 <div id="presetColorList" class="preset-color-list" aria-label="预设背景颜色"></div>
                 <div class="manual-color-row">
-                  <input id="backgroundColorPicker" type="color" value="#f4f7fb" aria-label="选择背景颜色">
-                  <input id="backgroundColorInput" type="text" value="#F4F7FB" maxlength="7" spellcheck="false" aria-label="六位背景颜色代码" placeholder="#F4F7FB">
+                  <input id="backgroundColorPicker" type="color" value="#f5f5f5" aria-label="选择背景颜色">
+                  <input id="backgroundColorInput" type="text" value="#F5F5F5" maxlength="7" spellcheck="false" aria-label="六位背景颜色代码" placeholder="#F5F5F5">
                 </div>
               </div>
             </div>
@@ -91,7 +91,7 @@
                 <small>低于 100% 时降低图片亮度；高于 100% 时保持原始亮度并逐步增加白色遮罩。</small>
               </label>
               <div class="range-control">
-                <input id="backgroundBrightnessInput" type="range" min="20" max="150" step="5" value="100">
+                <input id="backgroundBrightnessInput" type="range" min="20" max="200" step="5" value="100">
                 <output id="backgroundBrightnessValue" for="backgroundBrightnessInput" aria-live="polite">100%</output>
               </div>
             </div>
@@ -285,9 +285,9 @@
             <div class="field-row">
               <span class="field-copy">
                 <strong>版本号</strong>
-                <small>当前安装的扩展版本。</small>
+                <small>点击版本号检查更新。</small>
               </span>
-              <span id="extensionVersion" class="about-value">2.1.0</span>
+              <button id="extensionVersion" type="button" class="about-value version-button" aria-haspopup="dialog">2.2.0</button>
             </div>
             <div class="field-row">
               <span class="field-copy">
@@ -315,6 +315,30 @@
         </div>
       </main>
     </div>
+
+    <dialog id="updateDialog" class="update-dialog" aria-labelledby="updateDialogTitle">
+      <div class="update-dialog-header">
+        <div>
+          <p class="section-kicker">本地更新</p>
+          <h2 id="updateDialogTitle">检查版本更新</h2>
+        </div>
+        <button id="closeUpdateDialogButton" type="button" class="dialog-close" aria-label="关闭更新窗口">×</button>
+      </div>
+      <div class="update-version-grid" aria-label="版本信息">
+        <span>当前版本</span>
+        <strong id="updateCurrentVersion">—</strong>
+        <span>最新版本</span>
+        <strong id="updateLatestVersion">检查中</strong>
+      </div>
+      <p id="updateStatus" class="update-status" role="status" aria-live="polite">正在连接 GitHub 检查更新……</p>
+      <p class="update-help">
+        更新时请选择当前在 Edge 中加载的扩展文件夹。更新只替换程序文件，不会清除 API Key、设置或历史对话；同名的本地源码修改会被覆盖。
+      </p>
+      <div class="update-dialog-actions">
+        <a id="updateRepositoryLink" class="repository-link" href="https://github.com/HaoZhong03/EdgeChatSidebar" target="_blank" rel="noreferrer">查看项目</a>
+        <button id="installUpdateButton" type="button" class="primary" hidden>一键更新</button>
+      </div>
+    </dialog>
 
     <script type="module" src="options.js"></script>
   </body>

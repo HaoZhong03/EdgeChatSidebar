@@ -2,16 +2,16 @@
   color-scheme: light dark;
   font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
   --global-font-size: 16px;
-  --bg: #f7f8fb;
+  --bg: #f7f7f7;
   --surface: #ffffff;
-  --surface-soft: #eef2f7;
-  --surface-muted: #f1f5f9;
-  --border: #e3e7ef;
-  --border-strong: #ccd4e0;
-  --text: #172033;
-  --text-strong: #101828;
-  --text-muted: #667085;
-  --text-subtle: #526079;
+  --surface-soft: #eeeeee;
+  --surface-muted: #f3f3f3;
+  --border: #e2e2e2;
+  --border-strong: #cccccc;
+  --text: #262626;
+  --text-strong: #111111;
+  --text-muted: #6d6d6d;
+  --text-subtle: #555555;
   --field-bg: #ffffff;
   --primary: #2563eb;
   --primary-strong: #1d4ed8;
@@ -19,10 +19,10 @@
   --warning-bg: #fff7ed;
   --warning-border: #fed7aa;
   --warning-text: #9a3412;
-  --shadow: rgba(21, 31, 56, 0.06);
-  --code-bg: #eef2f7;
-  --pre-bg: #111827;
-  --pre-text: #f8fafc;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --code-bg: #eeeeee;
+  --pre-bg: #171717;
+  --pre-text: #fafafa;
   --bottom-dock-opacity: 100%;
   --bottom-dock-blur: 0px;
   --background-light-overlay-opacity: 0;
@@ -34,17 +34,17 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111318;
-  --surface: #1b1f27;
-  --surface-soft: #2a303a;
-  --surface-muted: #242a34;
-  --border: #303745;
-  --border-strong: #485365;
-  --text: #e8edf6;
-  --text-strong: #f7f9fc;
-  --text-muted: #a8b3c7;
-  --text-subtle: #b6c0d2;
-  --field-bg: #151922;
+  --bg: #121212;
+  --surface: #1c1c1c;
+  --surface-soft: #292929;
+  --surface-muted: #242424;
+  --border: #363636;
+  --border-strong: #505050;
+  --text: #e8e8e8;
+  --text-strong: #fafafa;
+  --text-muted: #aaaaaa;
+  --text-subtle: #bdbdbd;
+  --field-bg: #161616;
   --primary: #5b7cfa;
   --primary-strong: #8ea2ff;
   --primary-text: #ffffff;
@@ -52,9 +52,9 @@
   --warning-border: #875a2d;
   --warning-text: #ffd3a3;
   --shadow: rgba(0, 0, 0, 0.28);
-  --code-bg: #2a303a;
-  --pre-bg: #0b0f16;
-  --pre-text: #f8fafc;
+  --code-bg: #292929;
+  --pre-bg: #0c0c0c;
+  --pre-text: #fafafa;
 }
 
 :root[data-theme="light"] {
@@ -64,17 +64,17 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
     color-scheme: dark;
-    --bg: #111318;
-    --surface: #1b1f27;
-    --surface-soft: #2a303a;
-    --surface-muted: #242a34;
-    --border: #303745;
-    --border-strong: #485365;
-    --text: #e8edf6;
-    --text-strong: #f7f9fc;
-    --text-muted: #a8b3c7;
-    --text-subtle: #b6c0d2;
-    --field-bg: #151922;
+    --bg: #121212;
+    --surface: #1c1c1c;
+    --surface-soft: #292929;
+    --surface-muted: #242424;
+    --border: #363636;
+    --border-strong: #505050;
+    --text: #e8e8e8;
+    --text-strong: #fafafa;
+    --text-muted: #aaaaaa;
+    --text-subtle: #bdbdbd;
+    --field-bg: #161616;
     --primary: #5b7cfa;
     --primary-strong: #8ea2ff;
     --primary-text: #ffffff;
@@ -82,9 +82,9 @@
     --warning-border: #875a2d;
     --warning-text: #ffd3a3;
     --shadow: rgba(0, 0, 0, 0.28);
-    --code-bg: #2a303a;
-    --pre-bg: #0b0f16;
-    --pre-text: #f8fafc;
+    --code-bg: #292929;
+    --pre-bg: #0c0c0c;
+    --pre-text: #fafafa;
   }
 }
 
@@ -191,7 +191,7 @@ button {
 }
 
 .icon-button:hover {
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-soft));
+  background: var(--surface-muted);
 }
 
 .close-button {
@@ -203,8 +203,8 @@ button {
 }
 
 .close-button:hover {
-  border-color: color-mix(in srgb, var(--primary) 20%, var(--border));
-  background: color-mix(in srgb, var(--primary) 10%, var(--surface-soft));
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
   color: var(--text-strong);
   box-shadow: 0 4px 12px var(--shadow);
 }
@@ -249,7 +249,7 @@ button {
   z-index: 3;
   place-items: center;
   padding: 14px;
-  background: rgba(15, 23, 42, 0.42);
+  background: rgba(0, 0, 0, 0.42);
 }
 
 .settings.open,
@@ -328,7 +328,7 @@ button {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(15, 23, 42, 0.18);
+  background: rgba(0, 0, 0, 0.18);
 }
 
 .history-notice[hidden] {
@@ -391,7 +391,7 @@ button {
 .history-select:hover,
 .history-compress:hover,
 .history-delete:hover {
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-soft));
+  background: var(--surface-muted);
 }
 
 .history-select {
@@ -446,8 +446,8 @@ button {
 }
 
 .history-compress:hover {
-  border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
-  color: var(--primary-strong);
+  border-color: var(--border-strong);
+  color: var(--text-strong);
   box-shadow: 0 4px 12px var(--shadow);
 }
 
@@ -654,7 +654,7 @@ button {
 }
 
 .settings-actions .secondary:hover {
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-soft));
+  background: var(--surface-muted);
 }
 
 .messages {
@@ -782,7 +782,7 @@ button {
 
 .custom-provider-edit:hover,
 .inline-actions .secondary:hover {
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  background: var(--surface-muted);
 }
 
 .custom-provider-delete,
@@ -1134,7 +1134,7 @@ button {
 }
 
 .message-edit-cancel:hover {
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-soft));
+  background: var(--surface-muted);
 }
 
 .message-edit-submit:hover {
@@ -1264,7 +1264,7 @@ button {
   height: 18px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.52);
-  background: rgba(15, 23, 42, 0.62);
+  background: rgba(0, 0, 0, 0.62);
   color: #ffffff;
   font-size: 0;
   line-height: 0;
@@ -1272,8 +1272,8 @@ button {
 }
 
 .pending-image-remove:hover {
-  background: rgba(15, 23, 42, 0.82);
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.28);
+  background: rgba(0, 0, 0, 0.82);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
 }
 
 .pending-image-remove::before,
@@ -1379,7 +1379,7 @@ button {
 }
 
 .model-switch:hover {
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-soft));
+  background: var(--surface-muted);
 }
 
 .model-menu {
@@ -1432,13 +1432,13 @@ button {
   text-align: left;
 }
 
-.model-menu-option:hover,
-.model-menu-option.selected {
-  background: color-mix(in srgb, var(--primary) 13%, var(--surface-soft));
+.model-menu-option:hover {
+  background: var(--surface-muted);
 }
 
 .model-menu-option.selected {
   border: 1px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 13%, var(--surface-soft));
 }
 
 .model-menu-option.selected:hover {
