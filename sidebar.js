@@ -42,6 +42,7 @@ import {
 } from "./appearance.js";
 
 const DEFAULT_THEME = "system";
+const DEFAULT_SHOW_TOKEN_USAGE = true;
 
 const modelSwitchButton = document.getElementById("modelSwitchButton");
 const modelMenu = document.getElementById("modelMenu");
@@ -49,7 +50,6 @@ const tokenUsageText = document.getElementById("tokenUsageText");
 const settingsButton = document.getElementById("settingsButton");
 const historyButton = document.getElementById("historyButton");
 const historyPanel = document.getElementById("historyPanel");
-const closeHistoryButton = document.getElementById("closeHistoryButton");
 const newChatButton = document.getElementById("newChatButton");
 const historyList = document.getElementById("historyList");
 const historyNotice = document.getElementById("historyNotice");
@@ -57,7 +57,6 @@ const historyNoticeText = document.getElementById("historyNoticeText");
 const closeHistoryNoticeButton = document.getElementById("closeHistoryNoticeButton");
 const messagesEl = document.getElementById("messages");
 const chatForm = document.getElementById("chatForm");
-const composerResizeHandle = document.getElementById("composerResizeHandle");
 const pendingImagesEl = document.getElementById("pendingImages");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
@@ -66,7 +65,6 @@ const tokenUsageDetails = document.getElementById("tokenUsageDetails");
 const appBackground = document.getElementById("appBackground");
 
 const COMPOSER_MIN_HEIGHT = 64;
-const COMPOSER_IMAGE_MIN_HEIGHT = 124;
 const COMPOSER_MAX_MARGIN = 120;
 const DEFAULT_WEB_SEARCH_MODE = "off";
 const WEB_SEARCH_MODES = ["off", "auto", "force"];
@@ -82,6 +80,7 @@ let settings = {
   theme: DEFAULT_THEME,
   ...DEFAULT_APPEARANCE_SETTINGS,
   fontSize: DEFAULT_FONT_SIZE,
+  showTokenUsage: DEFAULT_SHOW_TOKEN_USAGE,
   showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
   timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
   systemPrompt: "",
@@ -126,6 +125,7 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
     [PREFERENCE_KEYS.dockOpacity]: settings.dockOpacity,
     [PREFERENCE_KEYS.dockBlur]: settings.dockBlur,
+    [PREFERENCE_KEYS.showTokenUsage]: settings.showTokenUsage,
     [PREFERENCE_KEYS.showTimestamps]: settings.showTimestamps,
     [PREFERENCE_KEYS.timestampFormat]: settings.timestampFormat,
     [PREFERENCE_KEYS.schemaVersion]: 1
@@ -162,6 +162,10 @@ function normalizeShowTimestamps(value) {
   return typeof value === "boolean" ? value : DEFAULT_SHOW_TIMESTAMPS;
 }
 
+function normalizeShowTokenUsage(value) {
+  return typeof value === "boolean" ? value : DEFAULT_SHOW_TOKEN_USAGE;
+}
+
 function applyGlobalFontSize(value) {
   document.documentElement.style.setProperty("--global-font-size", `${normalizeFontSize(value)}px`);
 }
@@ -169,11 +173,12 @@ function applyGlobalFontSize(value) {
 function updateModelSwitchLabel(status = "") {
   const provider = getActiveProvider();
   const config = getActiveProviderConfig();
-  const connection = config.apiKey || provider.type === "custom" ? "已连接" : "未配置";
-  const prefix = status || connection;
-  modelSwitchButton.textContent = `${prefix} · ${config.model}`;
-  modelSwitchButton.title = `当前模型：${provider.label} / ${config.model}。点击展开模型列表。`;
-  modelSwitchButton.setAttribute("aria-label", `切换模型，当前为 ${provider.label} ${config.model}`);
+  const connected = Boolean(config.apiKey) || provider.type === "custom";
+  const connectionLabel = connected ? "已连接" : "未连接";
+  const statusLabel = status ? `${status}。` : "";
+  modelSwitchButton.dataset.connected = String(connected);
+  modelSwitchButton.title = `${statusLabel}${connectionLabel}：${provider.label} / ${config.model}。点击展开模型列表。`;
+  modelSwitchButton.setAttribute("aria-label", `模型选择，${connectionLabel}，当前为 ${provider.label} ${config.model}${status ? `，${status}` : ""}`);
   renderModelMenu();
 }
 
@@ -213,9 +218,12 @@ function renderModelMenu() {
 
     modelMenu.appendChild(group);
   }
+
+  modelMenu.appendChild(settingsButton);
 }
 
 function openModelMenu() {
+  closeHistory(false);
   renderModelMenu();
   modelMenu.hidden = false;
   modelSwitchButton.setAttribute("aria-expanded", "true");
@@ -254,6 +262,13 @@ function updateTokenUsageDisplay(usage = getLatestTokenUsage()) {
   const state = session.contextUsageState || usage?.state || "empty";
   tokenUsageDetails.hidden = true;
   tokenUsageButton.setAttribute("aria-expanded", "false");
+
+  if (!settings.showTokenUsage) {
+    tokenUsageButton.hidden = true;
+    tokenUsageText.textContent = "";
+    tokenUsageDetails.innerHTML = "";
+    return;
+  }
 
   if (state === "unavailable") {
     tokenUsageButton.hidden = false;
@@ -390,10 +405,6 @@ function formatFileSize(bytes) {
   }
 
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function getComposerMinHeight() {
-  return pendingImages.length > 0 ? COMPOSER_IMAGE_MIN_HEIGHT : COMPOSER_MIN_HEIGHT;
 }
 
 function createSession(messages = []) {
@@ -578,12 +589,14 @@ function openHistory() {
   closeHistoryNotice();
   renderHistory();
   historyPanel.classList.add("open");
+  historyButton.setAttribute("aria-expanded", "true");
   newChatButton.focus();
 }
 
 function closeHistory(restoreFocus = true) {
   closeHistoryNotice();
   historyPanel.classList.remove("open");
+  historyButton.setAttribute("aria-expanded", "false");
   if (restoreFocus) {
     historyButton.focus();
   }
@@ -1168,6 +1181,7 @@ async function loadSettings() {
     fontSize: normalizeFontSize(
       preferenceData[PREFERENCE_KEYS.fontSize] ?? legacyData["edgeChat.messageFontSize"]
     ),
+    showTokenUsage: normalizeShowTokenUsage(preferenceData[PREFERENCE_KEYS.showTokenUsage]),
     showTimestamps: normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]),
     timestampFormat: normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]),
     systemPrompt: typeof secureState.config.systemPrompt === "string" ? secureState.config.systemPrompt : "",
@@ -1182,6 +1196,7 @@ async function loadSettings() {
   applyTheme(settings.theme);
   applyAppearance(settings);
   applyGlobalFontSize(settings.fontSize);
+  syncComposerHeight();
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
   await Promise.all([persistSecureState(), persistPreferences()]);
@@ -1232,6 +1247,7 @@ async function reloadOptionsConfiguration() {
     statusbarBlur: preferenceData[PREFERENCE_KEYS.statusbarBlur]
   }));
   settings.fontSize = normalizeFontSize(preferenceData[PREFERENCE_KEYS.fontSize]);
+  settings.showTokenUsage = normalizeShowTokenUsage(preferenceData[PREFERENCE_KEYS.showTokenUsage]);
   settings.showTimestamps = normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]);
   settings.timestampFormat = normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]);
   settings.systemPrompt = typeof secureConfig.systemPrompt === "string" ? secureConfig.systemPrompt : "";
@@ -1241,6 +1257,7 @@ async function reloadOptionsConfiguration() {
   applyTheme(settings.theme);
   applyAppearance(settings);
   applyGlobalFontSize(settings.fontSize);
+  syncComposerHeight();
   renderMessages({ preserveScroll: true });
   updateModelSwitchLabel();
   updateTokenUsageDisplay();
@@ -1602,15 +1619,6 @@ function renderPendingImages() {
   pendingImagesEl.innerHTML = "";
   pendingImagesEl.hidden = pendingImages.length === 0;
 
-  if (pendingImages.length > 0) {
-    const currentHeight = chatForm.getBoundingClientRect().height;
-    if (currentHeight < COMPOSER_IMAGE_MIN_HEIGHT) {
-      document.documentElement.style.setProperty("--composer-height", `${COMPOSER_IMAGE_MIN_HEIGHT}px`);
-    }
-  } else if (document.documentElement.style.getPropertyValue("--composer-height") === `${COMPOSER_IMAGE_MIN_HEIGHT}px`) {
-    document.documentElement.style.setProperty("--composer-height", `${COMPOSER_MIN_HEIGHT}px`);
-  }
-
   for (const image of pendingImages) {
     const item = document.createElement("div");
     item.className = "pending-image";
@@ -1631,6 +1639,24 @@ function renderPendingImages() {
     item.append(img, removeButton);
     pendingImagesEl.appendChild(item);
   }
+
+  syncComposerHeight();
+}
+
+function syncComposerHeight() {
+  messageInput.style.height = "0px";
+  const textHeight = messageInput.scrollHeight;
+  messageInput.style.removeProperty("height");
+
+  const imageHeight = pendingImages.length > 0
+    ? pendingImagesEl.getBoundingClientRect().height + 8
+    : 0;
+  const naturalHeight = textHeight + imageHeight + 20;
+  const maxHeight = Math.max(COMPOSER_MIN_HEIGHT, window.innerHeight - COMPOSER_MAX_MARGIN);
+  const nextHeight = Math.min(maxHeight, Math.max(COMPOSER_MIN_HEIGHT, naturalHeight));
+
+  document.documentElement.style.setProperty("--composer-height", `${Math.ceil(nextHeight)}px`);
+  messageInput.style.overflowY = naturalHeight > maxHeight ? "auto" : "hidden";
 }
 
 function readFileAsDataUrl(file) {
@@ -1765,7 +1791,10 @@ async function requestReplyForCurrentMessages() {
   }
 }
 
-settingsButton.addEventListener("click", openOptionsPage);
+settingsButton.addEventListener("click", () => {
+  closeModelMenu();
+  openOptionsPage();
+});
 
 modelSwitchButton.addEventListener("click", () => {
   toggleModelMenu();
@@ -1833,10 +1862,6 @@ historyButton.addEventListener("click", () => {
   openHistory();
 });
 
-closeHistoryButton.addEventListener("click", () => {
-  closeHistory();
-});
-
 closeHistoryNoticeButton.addEventListener("click", () => {
   closeHistoryNotice();
 });
@@ -1847,10 +1872,16 @@ historyNotice.addEventListener("click", (event) => {
   }
 });
 
-historyPanel.addEventListener("click", (event) => {
-  if (event.target === historyPanel) {
-    closeHistory();
+document.addEventListener("click", (event) => {
+  if (
+    !historyPanel.classList.contains("open")
+    || historyPanel.contains(event.target)
+    || historyButton.contains(event.target)
+  ) {
+    return;
   }
+
+  closeHistory(false);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -1927,48 +1958,6 @@ historyList.addEventListener("click", async (event) => {
   renderHistory();
 });
 
-composerResizeHandle.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0) return;
-
-  const startY = event.clientY;
-  const startHeight = chatForm.getBoundingClientRect().height;
-
-  composerResizeHandle.setPointerCapture(event.pointerId);
-  document.body.classList.add("composer-resizing");
-  event.preventDefault();
-
-  const resizeComposer = (pointerEvent) => {
-    const minHeight = getComposerMinHeight();
-    const maxHeight = Math.max(
-      minHeight,
-      window.innerHeight - COMPOSER_MAX_MARGIN
-    );
-    const nextHeight = Math.min(
-      maxHeight,
-      Math.max(minHeight, startHeight + startY - pointerEvent.clientY)
-    );
-
-    document.documentElement.style.setProperty(
-      "--composer-height",
-      `${Math.round(nextHeight)}px`
-    );
-  };
-
-  const stopResizing = (pointerEvent) => {
-    document.body.classList.remove("composer-resizing");
-    if (composerResizeHandle.hasPointerCapture(pointerEvent.pointerId)) {
-      composerResizeHandle.releasePointerCapture(pointerEvent.pointerId);
-    }
-    composerResizeHandle.removeEventListener("pointermove", resizeComposer);
-    composerResizeHandle.removeEventListener("pointerup", stopResizing);
-    composerResizeHandle.removeEventListener("pointercancel", stopResizing);
-  };
-
-  composerResizeHandle.addEventListener("pointermove", resizeComposer);
-  composerResizeHandle.addEventListener("pointerup", stopResizing);
-  composerResizeHandle.addEventListener("pointercancel", stopResizing);
-});
-
 messagesEl.addEventListener("click", (event) => {
   const editButton = event.target.closest(".message-edit");
   if (!editButton) return;
@@ -2036,6 +2025,9 @@ messageInput.addEventListener("keydown", (event) => {
   }
 });
 
+messageInput.addEventListener("input", syncComposerHeight);
+window.addEventListener("resize", syncComposerHeight);
+
 messageInput.addEventListener("paste", async (event) => {
   const items = Array.from(event.clipboardData?.items || []);
   const imageFiles = items
@@ -2080,6 +2072,7 @@ chatForm.addEventListener("submit", async (event) => {
   markCurrentUsageStale();
   appendMessage("user", content, { images, timestamp: userMessage.timestamp });
   messageInput.value = "";
+  syncComposerHeight();
   pendingImages = [];
   renderPendingImages();
   await saveMessages();
@@ -2098,6 +2091,8 @@ if (globalThis.chrome?.runtime?.onMessage) {
     });
   });
 }
+
+syncComposerHeight();
 
 loadSettings().catch((error) => {
   updateModelSwitchLabel("初始化失败");

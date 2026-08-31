@@ -36,6 +36,7 @@ test("settings controls live on the options page and the sidebar opens it", asyn
     "dockOpacityInput",
     "dockBlurInput",
     "fontSizeInput",
+    "showTokenUsageInput",
     "showTimestampsInput",
     "timestampFormatSelect",
     "systemPromptInput",
@@ -74,6 +75,22 @@ test("settings controls live on the options page and the sidebar opens it", asyn
   assert.match(sidebarCss, /\.message-edit\s*\{[\s\S]*?font-size:\s*0\.6875rem;[\s\S]*?font-weight:\s*400;[\s\S]*?line-height:\s*1;/);
   assert.match(optionsCss, /font-size:\s*var\(--global-font-size\)/);
   assert.match(sidebarCss, /font-size:\s*var\(--global-font-size\)/);
+
+  assert.doesNotMatch(sidebarHtml, /composerResizeHandle|composer-resize-handle/);
+  assert.match(sidebarHtml, /id="messageInput"[^>]*rows="1"/);
+  assert.match(sidebarScript, /messageInput\.addEventListener\("input", syncComposerHeight\)/);
+  assert.match(sidebarScript, /messageInput\.scrollHeight/);
+  assert.doesNotMatch(sidebarScript, /pointerdown[\s\S]*resizeComposer/);
+  assert.match(sidebarHtml, /id="modelSwitchButton"[^>]*status-dot[\s\S]*id="historyButton"[^>]*history-status/);
+  assert.match(sidebarHtml, /id="historyPanel"[^>]*class="history"[\s\S]*class="model-menu-label">历史对话/);
+  assert.match(sidebarHtml, /id="modelMenu"[\s\S]*id="settingsButton"[^>]*>设置<\/button>/);
+  assert.match(sidebarHtml, /id="sendButton"[^>]*form="chatForm"[\s\S]*<svg/);
+  assert.match(sidebarCss, /\.model-switch\[data-connected="true"\][\s\S]*?#22c55e/);
+  assert.match(sidebarCss, /\.history-status\s*\{[\s\S]*?#eab308/);
+  assert.match(sidebarCss, /\.model-menu,\s*\.history\s*\{[\s\S]*?width:\s*min\(300px/);
+  assert.match(sidebarCss, /--send-button-size:\s*calc\(\(var\(--bottom-dock-radius\) - var\(--send-button-edge-gap\)\) \* 2\)/);
+  assert.match(sidebarCss, /\.composer textarea:focus\s*\{[\s\S]*?box-shadow:\s*none/);
+  assert.doesNotMatch(statusbarRule, /border-top/);
 });
 
 test("the about section shows the current release and maintainer details", async () => {

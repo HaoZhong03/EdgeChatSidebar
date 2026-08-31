@@ -49,6 +49,7 @@ import {
 
 const DEFAULT_THEME = "system";
 const DEFAULT_WEB_SEARCH_MODE = "off";
+const DEFAULT_SHOW_TOKEN_USAGE = true;
 const THEMES = ["system", "light", "dark"];
 const WEB_SEARCH_MODES = ["off", "auto", "force"];
 
@@ -73,6 +74,7 @@ const dockBlurValue = document.getElementById("dockBlurValue");
 const fontSizeInput = document.getElementById("fontSizeInput");
 const fontSizeValue = document.getElementById("fontSizeValue");
 const showTimestampsInput = document.getElementById("showTimestampsInput");
+const showTokenUsageInput = document.getElementById("showTokenUsageInput");
 const timestampFormatSelect = document.getElementById("timestampFormatSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
 const webSearchModeSelect = document.getElementById("webSearchModeSelect");
@@ -108,6 +110,7 @@ let settings = {
   theme: DEFAULT_THEME,
   ...DEFAULT_APPEARANCE_SETTINGS,
   fontSize: DEFAULT_FONT_SIZE,
+  showTokenUsage: DEFAULT_SHOW_TOKEN_USAGE,
   showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
   timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
   systemPrompt: ""
@@ -132,6 +135,10 @@ function normalizeWebSearchMode(value) {
 
 function normalizeShowTimestamps(value) {
   return typeof value === "boolean" ? value : DEFAULT_SHOW_TIMESTAMPS;
+}
+
+function normalizeShowTokenUsage(value) {
+  return typeof value === "boolean" ? value : DEFAULT_SHOW_TOKEN_USAGE;
 }
 
 function createInitialSession(messages = []) {
@@ -294,6 +301,7 @@ function syncFormFromSettings() {
   dockBlurInput.value = String(settings.dockBlur);
   fontSizeInput.value = String(settings.fontSize);
   updateFontSizeControl(settings.fontSize);
+  showTokenUsageInput.checked = settings.showTokenUsage;
   showTimestampsInput.checked = settings.showTimestamps;
   timestampFormatSelect.value = settings.timestampFormat;
   systemPromptInput.value = settings.systemPrompt;
@@ -338,6 +346,7 @@ function syncSettingsFromForm() {
   settings.theme = normalizeTheme(themeSelect.value);
   Object.assign(settings, appearance);
   settings.fontSize = normalizeFontSize(fontSizeInput.value);
+  settings.showTokenUsage = showTokenUsageInput.checked;
   settings.showTimestamps = showTimestampsInput.checked;
   settings.timestampFormat = normalizeTimestampFormat(timestampFormatSelect.value);
   settings.systemPrompt = systemPromptInput.value.trim();
@@ -374,6 +383,7 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: getActiveProviderModel(),
     [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
+    [PREFERENCE_KEYS.showTokenUsage]: settings.showTokenUsage,
     [PREFERENCE_KEYS.showTimestamps]: settings.showTimestamps,
     [PREFERENCE_KEYS.timestampFormat]: settings.timestampFormat,
     [PREFERENCE_KEYS.schemaVersion]: 1
@@ -540,6 +550,7 @@ async function loadSettings() {
     fontSize: normalizeFontSize(
       preferenceData[PREFERENCE_KEYS.fontSize] ?? legacyData["edgeChat.messageFontSize"]
     ),
+    showTokenUsage: normalizeShowTokenUsage(preferenceData[PREFERENCE_KEYS.showTokenUsage]),
     showTimestamps: normalizeShowTimestamps(preferenceData[PREFERENCE_KEYS.showTimestamps]),
     timestampFormat: normalizeTimestampFormat(preferenceData[PREFERENCE_KEYS.timestampFormat]),
     systemPrompt: typeof secureState.config.systemPrompt === "string" ? secureState.config.systemPrompt : ""
@@ -644,6 +655,10 @@ showTimestampsInput.addEventListener("change", () => {
   setSaveNotice("有未保存的更改");
 });
 
+showTokenUsageInput.addEventListener("change", () => {
+  setSaveNotice("有未保存的更改");
+});
+
 for (const element of [timestampFormatSelect, systemPromptInput, webSearchModeSelect, deepseekApiKeyInput, mimoApiKeyInput]) {
   element.addEventListener("input", () => setSaveNotice("有未保存的更改"));
   element.addEventListener("change", () => setSaveNotice("有未保存的更改"));
@@ -669,7 +684,7 @@ saveSettingsButton.addEventListener("click", async () => {
 });
 
 resetSettingsButton.addEventListener("click", async () => {
-  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题背景、透明与模糊效果、全局字号、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
+  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题背景、透明与模糊效果、全局字号、Token 用量显示、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
   if (!confirmed) return;
 
   resetSettingsButton.disabled = true;
@@ -683,6 +698,7 @@ resetSettingsButton.addEventListener("click", async () => {
     theme: DEFAULT_THEME,
     ...DEFAULT_APPEARANCE_SETTINGS,
     fontSize: DEFAULT_FONT_SIZE,
+    showTokenUsage: DEFAULT_SHOW_TOKEN_USAGE,
     showTimestamps: DEFAULT_SHOW_TIMESTAMPS,
     timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
     systemPrompt: ""

@@ -11,52 +11,45 @@
     <main class="app">
       <div id="appBackground" class="app-background" aria-hidden="true"></div>
       <div class="app-background-overlay" aria-hidden="true"></div>
-      <section id="historyPanel" class="history" aria-label="历史对话" aria-modal="true" role="dialog">
-        <div class="history-dialog">
-          <div class="settings-titlebar">
-            <h2>历史对话</h2>
-            <button id="closeHistoryButton" class="icon-button close-button" type="button" aria-label="关闭历史对话" title="关闭历史对话">
-              <span aria-hidden="true"></span>
-            </button>
-          </div>
-          <button id="newChatButton" class="new-chat-button" type="button">新建对话</button>
-          <div id="historyNotice" class="history-notice" role="status" hidden>
-            <div class="history-notice-dialog">
-              <div id="historyNoticeText" class="history-notice-text"></div>
-              <button id="closeHistoryNoticeButton" class="history-notice-button" type="button">知道了</button>
-            </div>
-          </div>
-          <div id="historyList" class="history-list" aria-label="历史对话列表"></div>
-        </div>
-      </section>
 
       <section id="messages" class="messages" aria-live="polite"></section>
 
       <footer class="bottom-dock" aria-label="对话输入与状态">
         <form id="chatForm" class="composer">
-          <div id="composerResizeHandle" class="composer-resize-handle" aria-hidden="true"></div>
           <div class="composer-input">
             <div id="pendingImages" class="pending-images" aria-label="待发送图片" hidden></div>
-            <textarea id="messageInput" rows="2" placeholder="输入你的问题..."></textarea>
+            <textarea id="messageInput" rows="1" placeholder="输入你的问题..."></textarea>
           </div>
-          <button id="sendButton" type="submit">发送</button>
         </form>
 
         <div class="statusbar" aria-label="状态栏">
           <div class="status-info">
-            <button id="modelSwitchButton" class="model-switch" type="button" aria-label="切换模型" aria-expanded="false" aria-controls="modelMenu">DeepSeek</button>
-            <div id="modelMenu" class="model-menu" hidden></div>
+            <button id="modelSwitchButton" class="model-switch status-dot" type="button" aria-label="切换模型" aria-expanded="false" aria-controls="modelMenu"></button>
+            <div id="modelMenu" class="model-menu" hidden>
+              <button id="settingsButton" class="model-menu-settings" type="button" aria-label="打开拓展选项">设置</button>
+            </div>
+            <button id="historyButton" class="status-dot history-status" type="button" aria-label="历史对话" aria-expanded="false" aria-controls="historyPanel" title="历史对话"></button>
+            <section id="historyPanel" class="history" aria-label="历史对话" role="dialog">
+              <div class="model-menu-label">历史对话</div>
+              <button id="newChatButton" class="new-chat-button" type="button">新建对话</button>
+              <div id="historyNotice" class="history-notice" role="status" hidden>
+                <div class="history-notice-dialog">
+                  <div id="historyNoticeText" class="history-notice-text"></div>
+                  <button id="closeHistoryNoticeButton" class="history-notice-button" type="button">知道了</button>
+                </div>
+              </div>
+              <div id="historyList" class="history-list" aria-label="历史对话列表"></div>
+            </section>
             <button id="tokenUsageButton" class="token-usage" type="button" aria-expanded="false" aria-controls="tokenUsageDetails" hidden>
               <span id="tokenUsageText"></span>
             </button>
             <div id="tokenUsageDetails" class="token-usage-details" hidden></div>
           </div>
           <div class="status-actions">
-            <button id="historyButton" class="icon-button" type="button" aria-label="历史对话" title="历史对话">
-              <span aria-hidden="true">📄</span>
-            </button>
-            <button id="settingsButton" class="icon-button" type="button" aria-label="打开拓展选项" title="拓展选项">
-              <span aria-hidden="true">⚙️</span>
+            <button id="sendButton" class="send-button" type="submit" form="chatForm" aria-label="发送消息" title="发送消息">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 19V5M6 11l6-6 6 6"></path>
+              </svg>
             </button>
           </div>
         </div>

@@ -30,6 +30,10 @@ test("timestamp display preferences are stored as non-sensitive settings", () =>
   assert.equal(PREFERENCE_KEYS.timestampFormat, "edgeChat.timestampFormat");
 });
 
+test("token-usage visibility is stored as a non-sensitive setting", () => {
+  assert.equal(PREFERENCE_KEYS.showTokenUsage, "edgeChat.showTokenUsage");
+});
+
 test("global font size is stored as a non-sensitive preference", () => {
   assert.equal(PREFERENCE_KEYS.fontSize, "edgeChat.fontSize");
   assert.equal(LEGACY_STORAGE_KEYS.includes("edgeChat.messageFontSize"), true);

@@ -22,6 +22,7 @@ export const PREFERENCE_KEYS = Object.freeze({
   composerBlur: "edgeChat.composerBlur",
   statusbarOpacity: "edgeChat.statusbarOpacity",
   statusbarBlur: "edgeChat.statusbarBlur",
+  showTokenUsage: "edgeChat.showTokenUsage",
   showTimestamps: "edgeChat.showTimestamps",
   timestampFormat: "edgeChat.timestampFormat",
   schemaVersion: "edgeChat.schemaVersion"
