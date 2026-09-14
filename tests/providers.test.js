@@ -20,9 +20,8 @@ import {
   validateCustomEndpoint
 } from "../providers.js";
 
-test("DeepSeek vision model sends images through Chat Completions and Anthropic web search", () => {
+test("DeepSeek Flash sends images through Chat Completions and Anthropic web search", () => {
   const configs = createDefaultProviderConfigs();
-  configs.deepseek.model = DEEPSEEK_MULTIMODAL_MODEL;
   const profile = getProviderProfile(configs, "deepseek");
   const messages = [{
     role: "user",
@@ -72,10 +71,10 @@ test("DeepSeek request follows its Chat Completions profile", () => {
 
   assert.equal(profile.endpoint, "https://api.deepseek.com/chat/completions");
   assert.equal(profile.capabilities.webSearch, true);
-  assert.equal(profile.capabilities.imageInput, false);
+  assert.equal(profile.capabilities.imageInput, true);
   assert.deepEqual(buildAuthHeaders(profile), { Authorization: "Bearer secret" });
   assert.deepEqual(body, {
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     messages: [
       { role: "system", content: "brief" },
       { role: "user", content: "hello" }
@@ -109,7 +108,7 @@ test("DeepSeek web search uses the official Anthropic-compatible transport", () 
     "anthropic-version": "2023-06-01"
   });
   assert.deepEqual(body, {
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     messages: [
       { role: "user", content: "latest news" },
       { role: "assistant", content: "previous answer" }
@@ -339,4 +338,30 @@ test("custom SSE accumulator separates a leading think block from answer content
   stream.push('{"choices":[{"delta":{"content":" second</think>answer"}}]}');
   assert.equal(stream.result().reasoningContent, "first second");
   assert.equal(stream.result().content, "answer");
+});
+
+
+test("retired built-in Flash selections migrate to image-capable deepseek-flash", () => {
+  for (const model of ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]) {
+    for (const configs of [
+      normalizeProviderConfigs({ deepseek: { apiKey: "secret", model } }),
+      normalizeProviderConfigs({}, "secret", model)
+    ]) {
+      const profile = getProviderProfile(configs, "deepseek");
+      assert.equal(profile.model, "deepseek-flash");
+      assert.equal(profile.auth.apiKey, "secret");
+      assert.equal(profile.capabilities.imageInput, true);
+      assert.deepEqual(profile.models.map((item) => item.id), ["deepseek-flash", "deepseek-v4-pro"]);
+      assert.equal(buildChatCompletionRequest({ profile, messages: [] }).model, "deepseek-flash");
+      assert.equal(buildDeepSeekWebSearchRequest({ profile, messages: [] }).model, "deepseek-flash");
+    }
+  }
+});
+
+test("DeepSeek Pro selection remains text-only", () => {
+  const configs = normalizeProviderConfigs({ deepseek: { apiKey: "secret", model: "deepseek-v4-pro" } });
+  const profile = getProviderProfile(configs, "deepseek");
+  assert.equal(profile.model, "deepseek-v4-pro");
+  assert.equal(profile.capabilities.imageInput, false);
+  assert.equal(profile.capabilities.webSearch, true);
 });

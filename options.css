@@ -551,6 +551,10 @@ textarea:focus {
   font-weight: 800;
 }
 
+.provider-mark.deepseek {
+  background: #4d6bfe;
+}
+
 .provider-mark.mimo {
   background: #ff6900;
 }
@@ -623,6 +627,16 @@ textarea:focus {
   gap: 16px;
   border-top: 1px solid var(--border);
   padding-top: 20px;
+}
+
+.custom-provider-form .field {
+  align-content: start;
+}
+
+#customProviderApiKeyInput,
+#customProviderModelsInput {
+  height: 104px;
+  min-height: 104px;
 }
 
 .field-wide {

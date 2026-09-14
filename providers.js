@@ -1,5 +1,5 @@
 export const DEFAULT_PROVIDER_ID = "deepseek";
-export const DEEPSEEK_MULTIMODAL_MODEL = "deepseek-v4-flash-vision-exp";
+export const DEEPSEEK_MULTIMODAL_MODEL = "deepseek-flash";
 export const MIMO_MULTIMODAL_MODEL = "mimo-v2.5";
 export const DEEPSEEK_ANTHROPIC_ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages";
 
@@ -13,15 +13,14 @@ export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
     type: "builtin",
     endpoint: "https://api.deepseek.com/chat/completions",
     models: Object.freeze([
-      Object.freeze({ id: "deepseek-v4-flash", label: "deepseek-v4-flash" }),
-      Object.freeze({ id: "deepseek-v4-pro", label: "deepseek-v4-pro" }),
       Object.freeze({
         id: DEEPSEEK_MULTIMODAL_MODEL,
         label: DEEPSEEK_MULTIMODAL_MODEL,
         capabilities: Object.freeze({ imageInput: true })
-      })
+      }),
+      Object.freeze({ id: "deepseek-v4-pro", label: "deepseek-v4-pro" })
     ]),
-    defaultModel: "deepseek-v4-flash",
+    defaultModel: DEEPSEEK_MULTIMODAL_MODEL,
     auth: Object.freeze({ type: "bearer" }),
     capabilities: Object.freeze({
       maxOutputField: "max_tokens",
