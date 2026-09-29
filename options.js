@@ -46,12 +46,11 @@ import {
   fetchLatestVersion,
   installLocalUpdate
 } from "./updater.js";
+import { createConfigArchive, parseConfigArchive } from "./config-transfer.js";
 
 const DEFAULT_THEME = "system";
-const DEFAULT_WEB_SEARCH_MODE = "off";
 const DEFAULT_SHOW_TOKEN_USAGE = true;
 const THEMES = ["system", "light", "dark"];
-const WEB_SEARCH_MODES = ["off", "auto", "force"];
 
 const themeSelect = document.getElementById("themeSelect");
 const backgroundModeSelect = document.getElementById("backgroundModeSelect");
@@ -71,27 +70,53 @@ const dockOpacityInput = document.getElementById("dockOpacityInput");
 const dockOpacityValue = document.getElementById("dockOpacityValue");
 const dockBlurInput = document.getElementById("dockBlurInput");
 const dockBlurValue = document.getElementById("dockBlurValue");
+const componentOpacityInput = document.getElementById("componentOpacityInput");
+const componentOpacityValue = document.getElementById("componentOpacityValue");
+const componentBlurInput = document.getElementById("componentBlurInput");
+const componentBlurValue = document.getElementById("componentBlurValue");
 const fontSizeInput = document.getElementById("fontSizeInput");
 const fontSizeValue = document.getElementById("fontSizeValue");
 const showTimestampsInput = document.getElementById("showTimestampsInput");
 const showTokenUsageInput = document.getElementById("showTokenUsageInput");
 const timestampFormatSelect = document.getElementById("timestampFormatSelect");
 const systemPromptInput = document.getElementById("systemPromptInput");
-const webSearchModeSelect = document.getElementById("webSearchModeSelect");
-const deepseekApiKeyInput = document.getElementById("deepseekApiKeyInput");
-const mimoApiKeyInput = document.getElementById("mimoApiKeyInput");
 const customProviderIdInput = document.getElementById("customProviderIdInput");
 const customProviderNameInput = document.getElementById("customProviderNameInput");
 const customProviderEndpointInput = document.getElementById("customProviderEndpointInput");
+const customProviderFormatInput = document.getElementById("customProviderFormatInput");
+const customProviderImageInput = document.getElementById("customProviderImageInput");
+const customProviderFields = document.getElementById("customProviderFields");
+const addOptionalFieldButton = document.getElementById("addOptionalFieldButton");
+const providerDetailsDialog = document.getElementById("providerDetailsDialog");
+const openProviderDetailsButton = document.getElementById("openProviderDetailsButton");
+const closeProviderDetailsButton = document.getElementById("closeProviderDetailsButton");
+const finishProviderDetailsButton = document.getElementById("finishProviderDetailsButton");
 const customProviderApiKeyInput = document.getElementById("customProviderApiKeyInput");
 const customProviderModelsInput = document.getElementById("customProviderModelsInput");
 const customProviderList = document.getElementById("customProviderList");
+const providerListNotice = document.getElementById("providerListNotice");
+const addProviderButton = document.getElementById("addProviderButton");
+const providerEditorDialog = document.getElementById("providerEditorDialog");
+const closeProviderEditorButton = document.getElementById("closeProviderEditorButton");
 const saveCustomProviderButton = document.getElementById("saveCustomProviderButton");
 const cancelCustomProviderButton = document.getElementById("cancelCustomProviderButton");
 const customProviderNotice = document.getElementById("customProviderNotice");
 const cleanupCacheButton = document.getElementById("cleanupCacheButton");
 const clearAllDataButton = document.getElementById("clearAllDataButton");
+const exportConfigButton = document.getElementById("exportConfigButton");
+const importConfigButton = document.getElementById("importConfigButton");
+const importConfigInput = document.getElementById("importConfigInput");
 const storageNotice = document.getElementById("storageNotice");
+const feedbackDialog = document.getElementById("feedbackDialog");
+const feedbackDialogTitle = document.getElementById("feedbackDialogTitle");
+const feedbackDialogMessage = document.getElementById("feedbackDialogMessage");
+const feedbackDialogIcon = document.getElementById("feedbackDialogIcon");
+const closeFeedbackDialogButton = document.getElementById("closeFeedbackDialogButton");
+const confirmDialog = document.getElementById("confirmDialog");
+const confirmDialogTitle = document.getElementById("confirmDialogTitle");
+const confirmDialogMessage = document.getElementById("confirmDialogMessage");
+const cancelConfirmDialogButton = document.getElementById("cancelConfirmDialogButton");
+const acceptConfirmDialogButton = document.getElementById("acceptConfirmDialogButton");
 const extensionVersion = document.getElementById("extensionVersion");
 const updateDialog = document.getElementById("updateDialog");
 const closeUpdateDialogButton = document.getElementById("closeUpdateDialogButton");
@@ -106,7 +131,6 @@ const saveNotice = document.getElementById("saveNotice");
 let settings = {
   activeProvider: DEFAULT_PROVIDER_ID,
   providerConfigs: createDefaultProviderConfigs(),
-  webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
   ...DEFAULT_APPEARANCE_SETTINGS,
   fontSize: DEFAULT_FONT_SIZE,
@@ -116,6 +140,7 @@ let settings = {
   systemPrompt: ""
 };
 let availableUpdate = null;
+let resolveConfirmation = null;
 
 function storageGet(keys) {
   return globalThis.chrome?.storage?.local ? chrome.storage.local.get(keys) : Promise.resolve({});
@@ -127,10 +152,6 @@ function storageSet(value) {
 
 function normalizeTheme(value) {
   return THEMES.includes(value) ? value : DEFAULT_THEME;
-}
-
-function normalizeWebSearchMode(value) {
-  return WEB_SEARCH_MODES.includes(value) ? value : DEFAULT_WEB_SEARCH_MODE;
 }
 
 function normalizeShowTimestamps(value) {
@@ -167,13 +188,82 @@ function getLegacySessions(legacyData) {
 
 function setNotice(element, message) {
   element.textContent = message;
-  element.hidden = !message;
+  const progress = message.startsWith("正在");
+  element.hidden = !progress;
+  if (message && !progress) {
+    const isError = /失败|无效|无法|未授予|不支持|错误|不能为空|必须|不能|缺少|超过|请至少|请选择/.test(message);
+    showFeedback(message, isError ? "error" : "success");
+  }
 }
 
 function setSaveNotice(message, type = "") {
   saveNotice.textContent = message;
   saveNotice.className = `save-notice${type ? ` ${type}` : ""}`;
+  if (message && message !== "有未保存的更改" && message !== "所有设置均保存在本机。" && !message.startsWith("正在")) {
+    showFeedback(message, type === "error" ? "error" : "success");
+  }
 }
+
+function showFeedback(message, tone = "success") {
+  feedbackDialog.dataset.tone = tone;
+  feedbackDialogTitle.textContent = tone === "error" ? "操作未完成" : "操作完成";
+  feedbackDialogIcon.textContent = tone === "error" ? "!" : "✓";
+  feedbackDialogMessage.textContent = message;
+  if (!feedbackDialog.open) feedbackDialog.showModal();
+}
+
+function confirmAction(message, { danger = false, title = "确认操作" } = {}) {
+  if (confirmDialog.open) return Promise.resolve(false);
+  confirmDialogTitle.textContent = title;
+  confirmDialogMessage.textContent = message;
+  confirmDialog.dataset.tone = danger ? "warning" : "";
+  acceptConfirmDialogButton.className = danger ? "danger" : "primary";
+  return new Promise((resolve) => {
+    resolveConfirmation = resolve;
+    confirmDialog.showModal();
+  });
+}
+
+function finishConfirmation(accepted) {
+  if (confirmDialog.open) confirmDialog.close();
+  const resolve = resolveConfirmation;
+  resolveConfirmation = null;
+  resolve?.(accepted);
+}
+
+function autoResizeTextarea(textarea) {
+  if (!textarea?.isConnected || !textarea.getClientRects().length) return;
+  textarea.style.height = "auto";
+  const maxHeight = Math.min(window.innerHeight * 0.4, 400);
+  textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
+closeFeedbackDialogButton.addEventListener("click", () => feedbackDialog.close());
+feedbackDialog.addEventListener("click", (event) => {
+  if (event.target === feedbackDialog) feedbackDialog.close();
+});
+cancelConfirmDialogButton.addEventListener("click", () => finishConfirmation(false));
+acceptConfirmDialogButton.addEventListener("click", () => finishConfirmation(true));
+confirmDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  finishConfirmation(false);
+});
+confirmDialog.addEventListener("click", (event) => {
+  if (event.target === confirmDialog) finishConfirmation(false);
+});
+confirmDialog.addEventListener("close", () => {
+  if (!resolveConfirmation) return;
+  const resolve = resolveConfirmation;
+  resolveConfirmation = null;
+  resolve(false);
+});
+document.addEventListener("input", (event) => {
+  if (event.target instanceof HTMLTextAreaElement) autoResizeTextarea(event.target);
+});
+window.addEventListener("resize", () => {
+  for (const textarea of document.querySelectorAll("textarea")) autoResizeTextarea(textarea);
+});
 
 function setUpdateStatus(message, type = "") {
   updateStatus.textContent = message;
@@ -252,6 +342,8 @@ function updateAppearanceControls() {
   updateRangeOutput(backgroundBrightnessInput, backgroundBrightnessValue, "%");
   updateRangeOutput(dockOpacityInput, dockOpacityValue, "%");
   updateRangeOutput(dockBlurInput, dockBlurValue, " px");
+  updateRangeOutput(componentOpacityInput, componentOpacityValue, "%");
+  updateRangeOutput(componentBlurInput, componentBlurValue, " px");
 }
 
 function renderPresetColors() {
@@ -299,15 +391,15 @@ function syncFormFromSettings() {
   backgroundBrightnessInput.value = String(settings.backgroundBrightness);
   dockOpacityInput.value = String(settings.dockOpacity);
   dockBlurInput.value = String(settings.dockBlur);
+  componentOpacityInput.value = String(settings.componentOpacity);
+  componentBlurInput.value = String(settings.componentBlur);
   fontSizeInput.value = String(settings.fontSize);
   updateFontSizeControl(settings.fontSize);
   showTokenUsageInput.checked = settings.showTokenUsage;
   showTimestampsInput.checked = settings.showTimestamps;
   timestampFormatSelect.value = settings.timestampFormat;
   systemPromptInput.value = settings.systemPrompt;
-  webSearchModeSelect.value = settings.webSearchMode;
-  deepseekApiKeyInput.value = settings.providerConfigs.deepseek.apiKey;
-  mimoApiKeyInput.value = settings.providerConfigs.mimo.apiKey;
+  autoResizeTextarea(systemPromptInput);
   applyTheme(settings.theme);
   updateAppearanceControls();
   updateTimestampFormatControl();
@@ -326,23 +418,14 @@ function syncSettingsFromForm() {
     backgroundColor: backgroundColorInput.value,
     backgroundBrightness: backgroundBrightnessInput.value,
     dockOpacity: dockOpacityInput.value,
-    dockBlur: dockBlurInput.value
+    dockBlur: dockBlurInput.value,
+    componentOpacity: componentOpacityInput.value,
+    componentBlur: componentBlurInput.value
   });
   if (appearance.backgroundMode === "image" && !appearance.backgroundImage) {
     throw new Error("请选择一张有效的背景图片，或改用默认/纯色背景。");
   }
 
-  settings.providerConfigs = normalizeProviderConfigs({
-    ...settings.providerConfigs,
-    deepseek: {
-      ...settings.providerConfigs.deepseek,
-      apiKey: deepseekApiKeyInput.value.trim()
-    },
-    mimo: {
-      ...settings.providerConfigs.mimo,
-      apiKey: mimoApiKeyInput.value.trim()
-    }
-  });
   settings.theme = normalizeTheme(themeSelect.value);
   Object.assign(settings, appearance);
   settings.fontSize = normalizeFontSize(fontSizeInput.value);
@@ -350,16 +433,15 @@ function syncSettingsFromForm() {
   settings.showTimestamps = showTimestampsInput.checked;
   settings.timestampFormat = normalizeTimestampFormat(timestampFormatSelect.value);
   settings.systemPrompt = systemPromptInput.value.trim();
-  settings.webSearchMode = normalizeWebSearchMode(webSearchModeSelect.value);
 }
 
 function getActiveProviderModel() {
   const profiles = getProviderProfiles(settings.providerConfigs);
   if (!profiles.some((provider) => provider.id === settings.activeProvider)) {
-    settings.activeProvider = DEFAULT_PROVIDER_ID;
+    settings.activeProvider = profiles[0]?.id || DEFAULT_PROVIDER_ID;
   }
   return settings.providerConfigs[settings.activeProvider]?.model
-    || settings.providerConfigs[DEFAULT_PROVIDER_ID].model;
+    || "";
 }
 
 async function notifySidebar(resetData = false) {
@@ -372,6 +454,7 @@ async function notifySidebar(resetData = false) {
 }
 
 async function persistPreferences() {
+  const activeModel = getActiveProviderModel();
   await storageSet({
     [PREFERENCE_KEYS.theme]: settings.theme,
     [PREFERENCE_KEYS.fontSize]: settings.fontSize,
@@ -380,9 +463,10 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.backgroundBrightness]: settings.backgroundBrightness,
     [PREFERENCE_KEYS.dockOpacity]: settings.dockOpacity,
     [PREFERENCE_KEYS.dockBlur]: settings.dockBlur,
+    [PREFERENCE_KEYS.componentOpacity]: settings.componentOpacity,
+    [PREFERENCE_KEYS.componentBlur]: settings.componentBlur,
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
-    [PREFERENCE_KEYS.activeModel]: getActiveProviderModel(),
-    [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
+    [PREFERENCE_KEYS.activeModel]: activeModel,
     [PREFERENCE_KEYS.showTokenUsage]: settings.showTokenUsage,
     [PREFERENCE_KEYS.showTimestamps]: settings.showTimestamps,
     [PREFERENCE_KEYS.timestampFormat]: settings.timestampFormat,
@@ -398,11 +482,12 @@ async function syncActiveSelectionFromPreferences() {
   const requestedProvider = preferenceData[PREFERENCE_KEYS.activeProvider];
   const availableProviderIds = new Set(getProviderProfiles(settings.providerConfigs).map((provider) => provider.id));
   if (availableProviderIds.has(requestedProvider)) settings.activeProvider = requestedProvider;
+  if (!availableProviderIds.has(settings.activeProvider)) settings.activeProvider = [...availableProviderIds][0] || DEFAULT_PROVIDER_ID;
 
   const preferredModel = preferenceData[PREFERENCE_KEYS.activeModel];
   if (
     typeof preferredModel === "string"
-    && getProviderProfile(settings.providerConfigs, settings.activeProvider).models.some((model) => model.id === preferredModel)
+    && getProviderProfile(settings.providerConfigs, settings.activeProvider)?.models.some((model) => model.id === preferredModel)
   ) {
     settings.providerConfigs[settings.activeProvider].model = preferredModel;
   }
@@ -424,15 +509,21 @@ function clearCustomProviderForm() {
   customProviderIdInput.value = "";
   customProviderNameInput.value = "";
   customProviderEndpointInput.value = "";
+  customProviderFormatInput.value = "openai";
+  customProviderImageInput.checked = false;
+  customProviderFields.replaceChildren();
+  if (providerDetailsDialog.open) providerDetailsDialog.close();
+  if (providerEditorDialog.open) providerEditorDialog.close();
   customProviderApiKeyInput.value = "";
   customProviderModelsInput.value = "";
   saveCustomProviderButton.textContent = "添加提供商";
-  cancelCustomProviderButton.hidden = true;
+  document.getElementById("providerEditorTitle").textContent = "添加提供商";
   setNotice(customProviderNotice, "");
 }
 
 function renderCustomProviderList() {
   customProviderList.innerHTML = "";
+  setNotice(providerListNotice, "");
   const providers = Object.values(settings.providerConfigs).filter((config) => config.type === "custom");
   if (providers.length === 0) {
     const empty = document.createElement("div");
@@ -452,7 +543,7 @@ function renderCustomProviderList() {
     name.textContent = `${provider.label} · ${provider.models.length} 个模型`;
     const endpoint = document.createElement("span");
     endpoint.className = "custom-provider-endpoint";
-    endpoint.textContent = provider.endpoint;
+    endpoint.textContent = `${provider.apiFormat === "anthropic" ? "Anthropic" : "OpenAI"} · ${provider.baseUrl}`;
     endpoint.title = provider.endpoint;
     summary.append(name, endpoint);
 
@@ -470,6 +561,50 @@ function renderCustomProviderList() {
     customProviderList.appendChild(item);
   }
 }
+
+function addOptionalFieldRow(field = { key: "", value: "" }) {
+  const row = document.createElement("div");
+  row.className = "optional-field-row";
+  const key = document.createElement("input");
+  key.type = "text";
+  key.placeholder = "字段名，例如 temperature";
+  key.setAttribute("aria-label", "POST 字段名");
+  key.value = field.key;
+  const value = document.createElement("textarea");
+  value.rows = 1;
+  value.placeholder = 'JSON 值，例如 0.7 或 "auto"';
+  value.setAttribute("aria-label", "JSON 字段值");
+  value.value = field.value;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "ghost";
+  remove.textContent = "移除";
+  remove.addEventListener("click", () => row.remove());
+  row.append(key, value, remove);
+  customProviderFields.appendChild(row);
+  autoResizeTextarea(value);
+}
+
+function readOptionalFields() {
+  return [...customProviderFields.querySelectorAll(".optional-field-row")].map((row) => ({
+    key: row.children[0].value.trim(), value: row.children[1].value.trim()
+  }));
+}
+
+addOptionalFieldButton.addEventListener("click", () => addOptionalFieldRow());
+openProviderDetailsButton.addEventListener("click", () => {
+  providerDetailsDialog.showModal();
+  for (const textarea of customProviderFields.querySelectorAll("textarea")) autoResizeTextarea(textarea);
+});
+closeProviderDetailsButton.addEventListener("click", () => providerDetailsDialog.close());
+finishProviderDetailsButton.addEventListener("click", () => providerDetailsDialog.close());
+addProviderButton.addEventListener("click", () => {
+  clearCustomProviderForm();
+  providerEditorDialog.showModal();
+  autoResizeTextarea(customProviderModelsInput);
+  customProviderNameInput.focus();
+});
+closeProviderEditorButton.addEventListener("click", clearCustomProviderForm);
 
 async function removeOriginPermissionIfUnused(permissionOrigin) {
   if (!permissionOrigin || !globalThis.chrome?.permissions) return;
@@ -517,11 +652,11 @@ async function loadSettings() {
   const requestedProvider = preferenceData[PREFERENCE_KEYS.activeProvider]
     || legacyData.activeModelProvider
     || DEFAULT_PROVIDER_ID;
-  const activeProvider = availableProviderIds.has(requestedProvider) ? requestedProvider : DEFAULT_PROVIDER_ID;
+  const activeProvider = availableProviderIds.has(requestedProvider) ? requestedProvider : [...availableProviderIds][0] || DEFAULT_PROVIDER_ID;
   const preferredModel = preferenceData[PREFERENCE_KEYS.activeModel];
   if (
     typeof preferredModel === "string"
-    && getProviderProfile(providerConfigs, activeProvider).models.some((model) => model.id === preferredModel)
+    && getProviderProfile(providerConfigs, activeProvider)?.models.some((model) => model.id === preferredModel)
   ) {
     providerConfigs[activeProvider].model = preferredModel;
   }
@@ -529,11 +664,6 @@ async function loadSettings() {
   settings = {
     activeProvider,
     providerConfigs,
-    webSearchMode: normalizeWebSearchMode(
-      preferenceData[PREFERENCE_KEYS.webSearchMode]
-        ?? legacyData["edgeChat.mimoWebSearchMode"]
-        ?? legacyData.mimoWebSearchMode
-    ),
     theme: normalizeTheme(preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme),
     ...normalizeAppearanceSettings({
       backgroundMode: preferenceData[PREFERENCE_KEYS.backgroundMode],
@@ -542,6 +672,8 @@ async function loadSettings() {
       backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
       dockOpacity: preferenceData[PREFERENCE_KEYS.dockOpacity],
       dockBlur: preferenceData[PREFERENCE_KEYS.dockBlur],
+      componentOpacity: preferenceData[PREFERENCE_KEYS.componentOpacity],
+      componentBlur: preferenceData[PREFERENCE_KEYS.componentBlur],
       composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
       composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
       statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
@@ -637,7 +769,9 @@ removeBackgroundImageButton.addEventListener("click", () => {
 for (const [input, output, suffix] of [
   [backgroundBrightnessInput, backgroundBrightnessValue, "%"],
   [dockOpacityInput, dockOpacityValue, "%"],
-  [dockBlurInput, dockBlurValue, " px"]
+  [dockBlurInput, dockBlurValue, " px"],
+  [componentOpacityInput, componentOpacityValue, "%"],
+  [componentBlurInput, componentBlurValue, " px"]
 ]) {
   input.addEventListener("input", () => {
     updateRangeOutput(input, output, suffix);
@@ -659,7 +793,7 @@ showTokenUsageInput.addEventListener("change", () => {
   setSaveNotice("有未保存的更改");
 });
 
-for (const element of [timestampFormatSelect, systemPromptInput, webSearchModeSelect, deepseekApiKeyInput, mimoApiKeyInput]) {
+for (const element of [timestampFormatSelect, systemPromptInput]) {
   element.addEventListener("input", () => setSaveNotice("有未保存的更改"));
   element.addEventListener("change", () => setSaveNotice("有未保存的更改"));
 }
@@ -684,7 +818,7 @@ saveSettingsButton.addEventListener("click", async () => {
 });
 
 resetSettingsButton.addEventListener("click", async () => {
-  const confirmed = window.confirm("确定要重置设置吗？API Key、自定义提供商、主题背景、透明与模糊效果、全局字号、Token 用量显示、时间戳、系统提示词、联网搜索和模型选择会恢复默认，历史对话会保留。");
+  const confirmed = await confirmAction("确定要重置设置吗？API Key、提供商、主题背景、透明与模糊效果、全局字号、Token 用量显示、时间戳、系统提示词和模型选择会恢复默认，历史对话会保留。", { danger: true, title: "重置设置" });
   if (!confirmed) return;
 
   resetSettingsButton.disabled = true;
@@ -694,8 +828,7 @@ resetSettingsButton.addEventListener("click", async () => {
   settings = {
     activeProvider: DEFAULT_PROVIDER_ID,
     providerConfigs: createDefaultProviderConfigs(),
-    webSearchMode: DEFAULT_WEB_SEARCH_MODE,
-    theme: DEFAULT_THEME,
+      theme: DEFAULT_THEME,
     ...DEFAULT_APPEARANCE_SETTINGS,
     fontSize: DEFAULT_FONT_SIZE,
     showTokenUsage: DEFAULT_SHOW_TOKEN_USAGE,
@@ -727,13 +860,13 @@ saveCustomProviderButton.addEventListener("click", async () => {
     provider = normalizeCustomProvider({
       ...existing,
       label: customProviderNameInput.value,
-      endpoint: customProviderEndpointInput.value,
+      baseUrl: customProviderEndpointInput.value,
+      apiFormat: customProviderFormatInput.value,
+      imageInput: customProviderImageInput.checked,
+      optionalFields: readOptionalFields(),
       apiKey: customProviderApiKeyInput.value,
       models: customProviderModelsInput.value,
       model: existing?.model,
-      capabilityCache: existing?.endpoint === customProviderEndpointInput.value.trim()
-        ? existing.capabilityCache
-        : undefined
     }, existingId);
   } catch (error) {
     setNotice(customProviderNotice, error.message);
@@ -758,10 +891,7 @@ saveCustomProviderButton.addEventListener("click", async () => {
     const latestProviderConfigs = normalizeProviderConfigs(latestConfig?.providerConfigs);
     const latestExisting = latestProviderConfigs[existingId];
     provider = normalizeCustomProvider({
-      ...provider,
-      capabilityCache: latestExisting?.endpoint === provider.endpoint
-        ? latestExisting.capabilityCache
-        : provider.capabilityCache
+      ...provider
     }, existingId);
     const previousOrigin = latestExisting?.permissionOrigin || existing?.permissionOrigin;
     settings.providerConfigs = normalizeProviderConfigs({
@@ -774,7 +904,7 @@ saveCustomProviderButton.addEventListener("click", async () => {
     }
     clearCustomProviderForm();
     renderCustomProviderList();
-    setNotice(customProviderNotice, `已保存自定义提供商“${provider.label}”。`);
+    setNotice(providerListNotice, `已保存提供商“${provider.label}”。`);
   } catch (error) {
     setNotice(customProviderNotice, `保存失败：${error.message}`);
   } finally {
@@ -794,17 +924,24 @@ customProviderList.addEventListener("click", async (event) => {
   if (editButton) {
     customProviderIdInput.value = provider.id;
     customProviderNameInput.value = provider.label;
-    customProviderEndpointInput.value = provider.endpoint;
+    customProviderEndpointInput.value = provider.baseUrl;
+    customProviderFormatInput.value = provider.apiFormat;
+    customProviderImageInput.checked = provider.imageInput;
+    customProviderFields.replaceChildren();
+    for (const field of provider.optionalFields) addOptionalFieldRow(field);
     customProviderApiKeyInput.value = provider.apiKey;
     customProviderModelsInput.value = provider.models.map((model) => model.id).join("\n");
     saveCustomProviderButton.textContent = "保存提供商";
-    cancelCustomProviderButton.hidden = false;
+    document.getElementById("providerEditorTitle").textContent = `编辑 ${provider.label}`;
     setNotice(customProviderNotice, "");
+    setNotice(providerListNotice, "");
+    providerEditorDialog.showModal();
+    autoResizeTextarea(customProviderModelsInput);
     customProviderNameInput.focus();
     return;
   }
 
-  if (!window.confirm(`确定删除自定义提供商“${provider.label}”吗？历史对话不会删除。`)) return;
+  if (!await confirmAction(`确定删除自定义提供商“${provider.label}”吗？历史对话不会删除。`, { danger: true, title: "删除提供商" })) return;
   deleteButton.disabled = true;
   try {
     const latestConfig = await readSecureConfig();
@@ -812,20 +949,98 @@ customProviderList.addEventListener("click", async (event) => {
     const latestProvider = settings.providerConfigs[provider.id];
     if (!latestProvider || latestProvider.type !== "custom") {
       renderCustomProviderList();
-      setNotice(customProviderNotice, "该自定义提供商已被删除。");
+      setNotice(providerListNotice, "该提供商已被删除。");
       return;
     }
     delete settings.providerConfigs[latestProvider.id];
-    if (settings.activeProvider === provider.id) settings.activeProvider = DEFAULT_PROVIDER_ID;
+    if (settings.activeProvider === provider.id) settings.activeProvider = Object.keys(settings.providerConfigs)[0] || DEFAULT_PROVIDER_ID;
     await persistSettings();
     await removeOriginPermissionIfUnused(latestProvider.permissionOrigin);
     if (customProviderIdInput.value === provider.id) clearCustomProviderForm();
     renderCustomProviderList();
-    setNotice(customProviderNotice, `已删除自定义提供商“${provider.label}”。`);
+    setNotice(providerListNotice, `已删除提供商“${provider.label}”。`);
   } catch (error) {
     settings.providerConfigs[provider.id] = provider;
     renderCustomProviderList();
-    setNotice(customProviderNotice, `删除失败：${error.message}`);
+    setNotice(providerListNotice, `删除失败：${error.message}`);
+  }
+});
+
+exportConfigButton.addEventListener("click", async () => {
+  exportConfigButton.disabled = true;
+  setNotice(storageNotice, "正在生成配置文件……");
+  try {
+    syncSettingsFromForm();
+    const [secureConfig, preferenceData] = await Promise.all([
+      readSecureConfig(),
+      storageGet([PREFERENCE_KEYS.activeProvider, PREFERENCE_KEYS.activeModel])
+    ]);
+    const exportSettings = {
+      ...settings,
+      providerConfigs: normalizeProviderConfigs(secureConfig?.providerConfigs ?? settings.providerConfigs)
+    };
+    const preferredProvider = preferenceData[PREFERENCE_KEYS.activeProvider];
+    if (Object.hasOwn(exportSettings.providerConfigs, preferredProvider)) {
+      exportSettings.activeProvider = preferredProvider;
+      const preferredModel = preferenceData[PREFERENCE_KEYS.activeModel];
+      if (exportSettings.providerConfigs[preferredProvider].models.some((model) => model.id === preferredModel)) {
+        exportSettings.providerConfigs[preferredProvider].model = preferredModel;
+      }
+    }
+    const archive = createConfigArchive(exportSettings);
+    const blob = new Blob([`${JSON.stringify(archive, null, 2)}\n`], { type: "application/json" });
+    if (blob.size > 24 * 1024 * 1024) throw new Error("配置文件超过 24 MB，无法导出。");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `edge-chat-sidebar-config-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setNotice(storageNotice, "配置文件已导出。API Key 与历史对话未包含在文件中。");
+  } catch (error) {
+    setNotice(storageNotice, `导出失败：${error.message}`);
+  } finally {
+    exportConfigButton.disabled = false;
+  }
+});
+
+importConfigButton.addEventListener("click", () => {
+  importConfigInput.value = "";
+  importConfigInput.click();
+});
+
+importConfigInput.addEventListener("change", async () => {
+  const [file] = importConfigInput.files || [];
+  if (!file) return;
+  importConfigButton.disabled = true;
+  try {
+    if (file.size > 24 * 1024 * 1024) throw new Error("配置文件不能超过 24 MB。");
+    const currentConfig = await readSecureConfig();
+    const imported = parseConfigArchive(await file.text(), currentConfig?.providerConfigs);
+    const confirmed = await confirmAction(
+      `导入 ${Object.keys(imported.providerConfigs).length} 个提供商的配置？这会替换当前提供商列表和界面设置，历史对话保持不变。只有 ID、地址与格式均相同的已有提供商会保留本机 API Key。`,
+      { title: "导入配置" }
+    );
+    if (!confirmed) return;
+    const previousSettings = settings;
+    settings = imported;
+    syncFormFromSettings();
+    try {
+      await persistSettings({ markUsageStale: true, preserveActiveSelection: false });
+    } catch (error) {
+      settings = previousSettings;
+      syncFormFromSettings();
+      throw error;
+    }
+    setSaveNotice("配置已导入并保存。", "success");
+    setNotice(storageNotice, "配置已导入并同步到侧栏。如有新提供商，请补填 API Key。");
+  } catch (error) {
+    setNotice(storageNotice, `导入失败：${error.message}`);
+  } finally {
+    importConfigInput.value = "";
+    importConfigButton.disabled = false;
   }
 });
 
@@ -846,7 +1061,7 @@ cleanupCacheButton.addEventListener("click", async () => {
 });
 
 clearAllDataButton.addEventListener("click", async () => {
-  const confirmed = window.confirm("这会永久删除全部 API Key、自定义提供商、系统提示词、历史对话和图片。确定继续吗？");
+  const confirmed = await confirmAction("这会永久删除全部 API Key、自定义提供商、系统提示词、历史对话和图片。确定继续吗？", { danger: true, title: "清空全部数据" });
   if (!confirmed) return;
   clearAllDataButton.disabled = true;
   setNotice(storageNotice, "正在清空全部本地数据……");

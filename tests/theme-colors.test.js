@@ -55,7 +55,7 @@ test("ordinary hover surfaces no longer use the primary blue tint", async () => 
     readFile(new URL("../options.css", import.meta.url), "utf8"),
     readFile(new URL("../sidebar.css", import.meta.url), "utf8")
   ]);
-  assert.match(optionsCss, /\.section-nav a:focus-visible\s*\{[\s\S]*?background:\s*var\(--surface-soft\)/);
+  assert.match(optionsCss, /\.section-nav a:focus-visible\s*\{[^}]*?background:\s*var\(--surface-muted\)/);
   assert.match(optionsCss, /\.ghost:hover\s*\{[\s\S]*?background:\s*var\(--surface-soft\)/);
   assert.match(sidebarCss, /\.icon-button:hover\s*\{[\s\S]*?background:\s*var\(--surface-muted\)/);
   assert.match(sidebarCss, /\.model-switch:hover\s*\{[\s\S]*?background:\s*var\(--surface-muted\)/);

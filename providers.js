@@ -1,61 +1,10 @@
-export const DEFAULT_PROVIDER_ID = "deepseek";
-export const DEEPSEEK_MULTIMODAL_MODEL = "deepseek-flash";
-export const MIMO_MULTIMODAL_MODEL = "mimo-v2.5";
-export const DEEPSEEK_ANTHROPIC_ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages";
+export const DEFAULT_PROVIDER_ID = "";
 
-const DEEPSEEK_WEB_SEARCH_MAX_TOKENS = 8192;
-const DEEPSEEK_WEB_SEARCH_THINKING_TOKENS = 4096;
-
-export const BUILTIN_PROVIDER_PROFILES = Object.freeze({
-  deepseek: Object.freeze({
-    id: "deepseek",
-    label: "DeepSeek",
-    type: "builtin",
-    endpoint: "https://api.deepseek.com/chat/completions",
-    models: Object.freeze([
-      Object.freeze({
-        id: DEEPSEEK_MULTIMODAL_MODEL,
-        label: DEEPSEEK_MULTIMODAL_MODEL,
-        capabilities: Object.freeze({ imageInput: true })
-      }),
-      Object.freeze({ id: "deepseek-v4-pro", label: "deepseek-v4-pro" })
-    ]),
-    defaultModel: DEEPSEEK_MULTIMODAL_MODEL,
-    auth: Object.freeze({ type: "bearer" }),
-    capabilities: Object.freeze({
-      maxOutputField: "max_tokens",
-      streamUsage: "include_usage",
-      thinking: "enabled",
-      imageInput: false,
-      webSearch: true
-    })
-  }),
-  mimo: Object.freeze({
-    id: "mimo",
-    label: "小米 MiMo",
-    type: "builtin",
-    endpoint: "https://api.xiaomimimo.com/v1/chat/completions",
-    models: Object.freeze([
-      Object.freeze({
-        id: MIMO_MULTIMODAL_MODEL,
-        label: MIMO_MULTIMODAL_MODEL,
-        capabilities: Object.freeze({ imageInput: true })
-      }),
-      Object.freeze({ id: "mimo-v2.5-pro", label: "mimo-v2.5-pro" })
-    ]),
-    defaultModel: "mimo-v2.5",
-    auth: Object.freeze({ type: "api-key" }),
-    capabilities: Object.freeze({
-      maxOutputField: "max_completion_tokens",
-      streamUsage: "implicit",
-      thinking: "enabled",
-      imageInput: false,
-      webSearch: true
-    })
-  })
-});
-
-const UNKNOWN_PARAMETER_PATTERN = /(?:unknown|unsupported|unrecognized|unexpected|not\s+supported|not\s+(?:permitted|allowed)|extra(?:_forbidden|\s+(?:field|parameter|input))|invalid\s+(?:field|parameter)|未知|不支持|无法识别|非法参数)/i;
+// Historical profiles are used only to import existing encrypted settings.
+const LEGACY_PROVIDERS = {
+  deepseek: { label: "DeepSeek", baseUrl: "https://api.deepseek.com", models: ["deepseek-flash", "deepseek-v4-pro"] },
+  mimo: { label: "小米 MiMo", baseUrl: "https://api.xiaomimimo.com/v1", models: ["mimo-v2.5", "mimo-v2.5-pro"] }
+};
 
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -69,15 +18,7 @@ function uniqueModelIds(value) {
 }
 
 export function createDefaultProviderConfigs() {
-  return Object.fromEntries(Object.values(BUILTIN_PROVIDER_PROFILES).map((profile) => [
-    profile.id,
-    {
-      id: profile.id,
-      type: "builtin",
-      apiKey: "",
-      model: profile.defaultModel
-    }
-  ]));
+  return {};
 }
 
 export function validateCustomEndpoint(value) {
@@ -96,6 +37,9 @@ export function validateCustomEndpoint(value) {
   if (url.hash) {
     throw new Error("Endpoint 不能包含 fragment。");
   }
+  if (url.search) {
+    throw new Error("Base URL 不能包含查询参数。");
+  }
 
   const isLoopback = url.hostname === "localhost" || url.hostname === "127.0.0.1";
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback)) {
@@ -112,140 +56,98 @@ export function validateCustomEndpoint(value) {
 
 export function normalizeCustomProvider(value, existingId = "") {
   const label = cleanString(value?.label ?? value?.name);
-  if (!label) {
-    throw new Error("提供商名称不能为空。");
-  }
-
-  const { endpoint, origin, permissionOrigin } = validateCustomEndpoint(value?.endpoint ?? value?.apiUrl);
+  if (!label) throw new Error("提供商名称不能为空。");
+  const apiFormat = value?.apiFormat === "anthropic" ? "anthropic" : "openai";
+  const rawBase = (cleanString(value?.baseUrl) || cleanString(value?.endpoint ?? value?.apiUrl))
+    .replace(/\/(?:chat\/completions|messages)\/?$/i, "");
+  const { endpoint: baseUrl, origin, permissionOrigin } = validateCustomEndpoint(rawBase);
   const modelIds = uniqueModelIds(value?.models);
-  if (modelIds.length === 0) {
-    throw new Error("请至少填写一个模型 ID。");
+  if (!modelIds.length) throw new Error("请至少填写一个模型 ID。");
+  const rawFields = Array.isArray(value?.optionalFields) ? value.optionalFields : [];
+  const optionalFields = rawFields.map((field) => {
+    const key = cleanString(field?.key);
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(key) || ["model", "messages", "stream"].includes(key)) {
+      throw new Error(`无效或保留的可选字段名：${key || "（空）"}`);
+    }
+    const rawValue = typeof field?.value === "string" ? field.value : JSON.stringify(field?.value);
+    if (rawValue === undefined) throw new Error(`${key} 缺少 JSON 值。`);
+    try { JSON.parse(rawValue); } catch { throw new Error(`${key} 的值必须是有效 JSON。字符串请加双引号。`); }
+    return { key, value: rawValue };
+  });
+  if (new Set(optionalFields.map((field) => field.key)).size !== optionalFields.length) {
+    throw new Error("可选字段名不能重复。");
   }
-
+  const anthropicMaxTokens = optionalFields.find((field) => field.key === "max_tokens");
+  if (apiFormat === "anthropic" && anthropicMaxTokens) {
+    const value = JSON.parse(anthropicMaxTokens.value);
+    if (!Number.isInteger(value) || value < 1) throw new Error("Anthropic 的 max_tokens 必须是正整数。");
+  }
   const id = cleanString(existingId || value?.id) || crypto.randomUUID();
   const selectedModel = cleanString(value?.model);
-  const capabilityCache = value?.capabilityCache && typeof value.capabilityCache === "object"
-    ? {
-        maxOutputField: ["max_tokens", "max_completion_tokens"].includes(value.capabilityCache.maxOutputField)
-          ? value.capabilityCache.maxOutputField
-          : "auto",
-        streamUsage: ["include_usage", "implicit"].includes(value.capabilityCache.streamUsage)
-          ? value.capabilityCache.streamUsage
-          : "auto",
-        thinking: ["enabled", "unsupported"].includes(value.capabilityCache.thinking)
-          ? value.capabilityCache.thinking
-          : "auto"
-      }
-    : { maxOutputField: "auto", streamUsage: "auto", thinking: "auto" };
-
   return {
-    id,
-    type: "custom",
-    label,
-    endpoint,
-    origin,
-    permissionOrigin,
+    id, type: "custom", label, apiFormat, baseUrl,
+    endpoint: `${baseUrl.replace(/\/$/, "")}/${apiFormat === "anthropic" ? "messages" : "chat/completions"}`,
+    origin, permissionOrigin,
     apiKey: cleanString(value?.apiKey),
     models: modelIds.map((modelId) => ({ id: modelId, label: modelId })),
     model: modelIds.includes(selectedModel) ? selectedModel : modelIds[0],
-    capabilityCache
+    optionalFields,
+    imageInput: value?.imageInput === true
   };
 }
 
 export function normalizeProviderConfigs(value, legacyApiKey = "", legacyModel = "") {
-  const defaults = createDefaultProviderConfigs();
   const source = value && typeof value === "object" ? value : {};
-
-  for (const profile of Object.values(BUILTIN_PROVIDER_PROFILES)) {
-    const config = source[profile.id] && typeof source[profile.id] === "object" ? source[profile.id] : {};
-    const modelIds = profile.models.map((model) => model.id);
-    defaults[profile.id] = {
-      id: profile.id,
-      type: "builtin",
-      apiKey: cleanString(config.apiKey),
-      model: modelIds.includes(cleanString(config.model)) ? cleanString(config.model) : profile.defaultModel
-    };
-  }
-
-  if (!source.deepseek && legacyApiKey) {
-    defaults.deepseek.apiKey = cleanString(legacyApiKey);
-    if (BUILTIN_PROVIDER_PROFILES.deepseek.models.some((item) => item.id === legacyModel)) {
-      defaults.deepseek.model = legacyModel;
-    }
-  }
-
+  const configs = {};
   for (const [id, config] of Object.entries(source)) {
-    if (id in BUILTIN_PROVIDER_PROFILES || config?.type !== "custom") continue;
     try {
-      const normalized = normalizeCustomProvider(config, id);
-      defaults[normalized.id] = normalized;
+      if (Object.hasOwn(LEGACY_PROVIDERS, id) && config?.type !== "custom") {
+        const legacy = LEGACY_PROVIDERS[id];
+        configs[id] = normalizeCustomProvider({
+          label: legacy.label, baseUrl: legacy.baseUrl, apiFormat: "openai",
+          apiKey: config?.apiKey || (id === "deepseek" ? legacyApiKey : ""),
+          models: legacy.models,
+          model: id === "deepseek" && ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"].includes(config?.model)
+            ? "deepseek-flash" : config?.model,
+          imageInput: false
+        }, id);
+      } else if (config?.type === "custom") {
+        configs[id] = normalizeCustomProvider(config, id);
+      }
     } catch {
-      // Invalid legacy custom providers are ignored instead of weakening endpoint validation.
+      // Invalid saved endpoints are ignored; endpoint validation is never relaxed.
     }
   }
-
-  return defaults;
+  if (!configs.deepseek && legacyApiKey) {
+    const legacy = LEGACY_PROVIDERS.deepseek;
+    configs.deepseek = normalizeCustomProvider({
+      label: legacy.label, baseUrl: legacy.baseUrl, apiKey: legacyApiKey,
+      models: legacy.models, model: legacyModel, imageInput: false
+    }, "deepseek");
+  }
+  return configs;
 }
 
 export function getProviderProfiles(configs) {
-  const normalized = normalizeProviderConfigs(configs);
-  const profiles = Object.values(BUILTIN_PROVIDER_PROFILES).map((profile) => {
-    const config = normalized[profile.id];
-    const selectedModel = profile.models.find((model) => model.id === config.model);
-    return {
-      ...profile,
-      models: profile.models.map((model) => ({
-        ...model,
-        ...(model.capabilities ? { capabilities: { ...model.capabilities } } : {})
-      })),
-      auth: { ...profile.auth, apiKey: config.apiKey },
-      capabilities: { ...profile.capabilities, ...(selectedModel?.capabilities || {}) },
-      model: config.model
-    };
-  });
-
-  for (const config of Object.values(normalized)) {
-    if (config.type !== "custom") continue;
-    profiles.push({
-      id: config.id,
-      label: config.label,
-      type: "custom",
-      endpoint: config.endpoint,
-      models: config.models.map((model) => ({ ...model })),
-      model: config.model,
-      auth: { type: "bearer", apiKey: config.apiKey },
-      capabilities: {
-        maxOutputField: config.capabilityCache.maxOutputField,
-        streamUsage: config.capabilityCache.streamUsage,
-        thinking: config.capabilityCache.thinking,
-        imageInput: false,
-        webSearch: false
-      }
-    });
-  }
-
-  return profiles;
+  return Object.values(normalizeProviderConfigs(configs)).map((config) => ({
+    ...config,
+    models: config.models.map((model) => ({ ...model })),
+    auth: { type: config.apiFormat === "anthropic" ? "api-key" : "bearer", apiKey: config.apiKey },
+    capabilities: { imageInput: config.imageInput, webSearch: false }
+  }));
 }
 
 export function getProviderProfile(configs, providerId) {
   const profiles = getProviderProfiles(configs);
-  return profiles.find((profile) => profile.id === providerId) || profiles[0];
+  return profiles.find((profile) => profile.id === providerId) || profiles[0] || null;
 }
 
 export function buildAuthHeaders(profile) {
   const apiKey = cleanString(profile?.auth?.apiKey);
-  if (!apiKey) return {};
-  return profile.auth.type === "api-key"
-    ? { "api-key": apiKey }
-    : { Authorization: `Bearer ${apiKey}` };
-}
-
-export function buildDeepSeekAnthropicHeaders(profile) {
-  const apiKey = cleanString(profile?.auth?.apiKey);
-  return {
-    ...(apiKey ? { "x-api-key": apiKey } : {}),
-    "anthropic-version": "2023-06-01"
-  };
+  if (profile?.apiFormat === "anthropic") {
+    return { ...(apiKey ? { "x-api-key": apiKey } : {}), "anthropic-version": "2023-06-01" };
+  }
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
 function toApiMessage(message, profile) {
@@ -269,48 +171,15 @@ function toApiMessage(message, profile) {
   return { role, content: text };
 }
 
-export function buildChatCompletionRequest(options) {
-  const {
-    profile,
-    messages = [],
-    systemPrompt = "",
-    stream = true,
-    maxOutputTokens,
-    includeWebSearch = true,
-    webSearchMode = "off",
-    overrides = {}
-  } = options;
+export function buildChatCompletionRequest({ profile, messages = [], systemPrompt = "", stream = true }) {
   const apiMessages = messages.map((message) => toApiMessage(message, profile));
-  if (cleanString(systemPrompt)) {
-    apiMessages.unshift({ role: "system", content: cleanString(systemPrompt) });
-  }
-
-  const body = { model: profile.model, messages: apiMessages, stream: Boolean(stream) };
-  const streamUsage = overrides.streamUsage || profile.capabilities.streamUsage;
-  if (stream && (streamUsage === "include_usage" || streamUsage === "auto")) {
-    body.stream_options = { include_usage: true };
-  }
-
-  if (["enabled", "auto"].includes(profile.capabilities.thinking)) {
-    body.thinking = { type: "enabled" };
-  }
-
-  if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) {
-    const maxOutputField = overrides.maxOutputField
-      || (profile.capabilities.maxOutputField === "auto" ? "max_tokens" : profile.capabilities.maxOutputField);
-    body[maxOutputField] = Math.floor(maxOutputTokens);
-  }
-
-  if (profile.id === "mimo" && includeWebSearch && webSearchMode !== "off") {
-    body.tools = [{
-      type: "web_search",
-      max_keyword: 3,
-      force_search: webSearchMode === "force",
-      limit: 1
-    }];
-  }
-
-  return body;
+  if (cleanString(systemPrompt)) apiMessages.unshift({ role: "system", content: cleanString(systemPrompt) });
+  return {
+    model: profile.model,
+    messages: apiMessages,
+    ...(stream ? { stream: true } : {}),
+    ...Object.fromEntries(profile.optionalFields.map((field) => [field.key, JSON.parse(field.value)]))
+  };
 }
 
 function toAnthropicImageBlock(image) {
@@ -326,62 +195,29 @@ function toAnthropicImageBlock(image) {
   };
 }
 
-export function buildDeepSeekWebSearchRequest(options) {
-  const {
-    profile,
-    messages = [],
-    systemPrompt = "",
-    stream = true,
-    maxOutputTokens,
-    webSearchMode = "auto"
-  } = options;
+export function buildAnthropicRequest({ profile, messages = [], systemPrompt = "", stream = true, maxOutputTokens }) {
   const systemParts = [cleanString(systemPrompt)];
   const apiMessages = [];
-
   for (const message of messages) {
-    const text = typeof message?.content === "string" ? message.content : "";
+    const content = typeof message?.content === "string" ? message.content : "";
     if (message?.role === "system") {
-      if (cleanString(text)) systemParts.push(cleanString(text));
+      if (cleanString(content)) systemParts.push(cleanString(content));
       continue;
     }
     const role = message?.role === "assistant" ? "assistant" : "user";
-    const imageBlocks = role === "user" && profile.capabilities.imageInput && Array.isArray(message?.images)
-      ? message.images.map(toAnthropicImageBlock).filter(Boolean)
-      : [];
-    apiMessages.push({
-      role,
-      content: imageBlocks.length > 0
-        ? [{ type: "text", text: text.trim() || "请分析这张图片。" }, ...imageBlocks]
-        : text
-    });
+    const images = role === "user" && profile.capabilities.imageInput && Array.isArray(message?.images)
+      ? message.images.map(toAnthropicImageBlock).filter(Boolean) : [];
+    apiMessages.push({ role, content: images.length
+      ? [{ type: "text", text: content.trim() || "请分析这张图片。" }, ...images] : content });
   }
-
-  const requestedMaxTokens = Number.isFinite(maxOutputTokens) && maxOutputTokens > 0
-    ? Math.floor(maxOutputTokens)
-    : DEEPSEEK_WEB_SEARCH_MAX_TOKENS;
+  const fields = Object.fromEntries(profile.optionalFields.map((field) => [field.key, JSON.parse(field.value)]));
   const body = {
-    model: profile.model,
-    messages: apiMessages,
-    stream: Boolean(stream),
-    max_tokens: requestedMaxTokens,
-    thinking: {
-      type: "enabled",
-      budget_tokens: Math.min(DEEPSEEK_WEB_SEARCH_THINKING_TOKENS, Math.max(1, requestedMaxTokens - 1))
-    }
+    model: profile.model, messages: apiMessages,
+    max_tokens: Number.isFinite(maxOutputTokens) && maxOutputTokens > 0 ? Math.floor(maxOutputTokens) : 4096,
+    ...(stream ? { stream: true } : {}), ...fields
   };
   const system = systemParts.filter(Boolean).join("\n\n");
   if (system) body.system = system;
-
-  if (webSearchMode !== "off") {
-    body.tools = [{
-      type: "web_search_20260209",
-      name: "web_search",
-      max_uses: 3,
-      allowed_callers: ["direct"]
-    }];
-    body.tool_choice = { type: webSearchMode === "force" ? "any" : "auto" };
-  }
-
   return body;
 }
 
@@ -489,12 +325,6 @@ export function parseApiError(text, status) {
   error.status = status;
   error.responseText = text;
   return error;
-}
-
-export function isExplicitUnknownParameterError(error, parameterName) {
-  if (![400, 422].includes(Number(error?.status))) return false;
-  const text = `${error?.message || ""} ${error?.responseText || ""}`;
-  return text.toLowerCase().includes(parameterName.toLowerCase()) && UNKNOWN_PARAMETER_PATTERN.test(text);
 }
 
 function reasoningText(value) {

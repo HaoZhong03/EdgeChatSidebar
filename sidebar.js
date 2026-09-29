@@ -1,17 +1,15 @@
 import {
-  DEEPSEEK_ANTHROPIC_ENDPOINT,
   DEFAULT_PROVIDER_ID,
   buildAuthHeaders,
+  buildAnthropicRequest,
   buildChatCompletionRequest,
-  buildDeepSeekAnthropicHeaders,
-  buildDeepSeekWebSearchRequest,
   createAnthropicStreamAccumulator,
   createDefaultProviderConfigs,
   createStreamAccumulator,
   getProviderProfile,
   getProviderProfiles,
-  isExplicitUnknownParameterError,
   normalizeProviderConfigs,
+  normalizeAnthropicUsage,
   normalizeUsage,
   parseApiError
 } from "./providers.js";
@@ -56,6 +54,8 @@ const historyNotice = document.getElementById("historyNotice");
 const historyNoticeText = document.getElementById("historyNoticeText");
 const closeHistoryNoticeButton = document.getElementById("closeHistoryNoticeButton");
 const messagesEl = document.getElementById("messages");
+const conversationLocator = document.getElementById("conversationLocator");
+const scrollToBottomButton = document.getElementById("scrollToBottomButton");
 const chatForm = document.getElementById("chatForm");
 const pendingImagesEl = document.getElementById("pendingImages");
 const messageInput = document.getElementById("messageInput");
@@ -66,17 +66,21 @@ const appBackground = document.getElementById("appBackground");
 
 const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_MAX_MARGIN = 120;
-const DEFAULT_WEB_SEARCH_MODE = "off";
-const WEB_SEARCH_MODES = ["off", "auto", "force"];
 const DEFAULT_IMAGE_PROMPT = "请分析这张图片。";
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGES_PER_MESSAGE = 4;
+const EMPTY_GREETING_MESSAGES = Object.freeze([
+  "有什么新想法，随时和我聊聊。",
+  "从你最关心的事开始吧。",
+  "今天也一起把思路理清楚。",
+  "想聊什么？我一直在这里。",
+  "让我们从一个好问题开始。"
+]);
 
 let settings = {
   activeProvider: DEFAULT_PROVIDER_ID,
   providerConfigs: createDefaultProviderConfigs(),
-  webSearchMode: DEFAULT_WEB_SEARCH_MODE,
   theme: DEFAULT_THEME,
   ...DEFAULT_APPEARANCE_SETTINGS,
   fontSize: DEFAULT_FONT_SIZE,
@@ -92,6 +96,45 @@ let MODEL_PROVIDERS = {};
 let pendingImages = [];
 let isRequestInFlight = false;
 let editingMessageIndex = -1;
+let emptyGreetingSessionId = "";
+let emptyGreetingMessage = "";
+let conversationNavigationFrame = 0;
+let locatorTicks = [];
+let locatorMessages = [];
+let activeLocatorIndex = -1;
+
+function getTimeGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 11) return "早上好";
+  if (hour >= 11 && hour < 14) return "中午好";
+  if (hour >= 14 && hour < 18) return "下午好";
+  return "晚上好";
+}
+
+function renderEmptyGreeting() {
+  if (emptyGreetingSessionId !== settings.currentSessionId || !emptyGreetingMessage) {
+    emptyGreetingSessionId = settings.currentSessionId;
+    emptyGreetingMessage = EMPTY_GREETING_MESSAGES[
+      Math.floor(Math.random() * EMPTY_GREETING_MESSAGES.length)
+    ];
+  }
+
+  const greeting = document.createElement("div");
+  greeting.className = "empty-greeting";
+  const title = document.createElement("h1");
+  title.className = "empty-greeting-title";
+  title.textContent = getTimeGreeting();
+  const message = document.createElement("p");
+  message.className = "empty-greeting-message";
+  message.textContent = emptyGreetingMessage;
+  greeting.append(title, message);
+  messagesEl.appendChild(greeting);
+}
+
+setInterval(() => {
+  const title = messagesEl.querySelector(".empty-greeting-title");
+  if (title) title.textContent = getTimeGreeting();
+}, 60_000);
 
 function refreshProviderRegistry() {
   MODEL_PROVIDERS = Object.fromEntries(getProviderProfiles(settings.providerConfigs).map((profile) => [
@@ -122,9 +165,10 @@ async function persistPreferences() {
     [PREFERENCE_KEYS.fontSize]: settings.fontSize,
     [PREFERENCE_KEYS.activeProvider]: settings.activeProvider,
     [PREFERENCE_KEYS.activeModel]: activeConfig?.model || "",
-    [PREFERENCE_KEYS.webSearchMode]: settings.webSearchMode,
     [PREFERENCE_KEYS.dockOpacity]: settings.dockOpacity,
     [PREFERENCE_KEYS.dockBlur]: settings.dockBlur,
+    [PREFERENCE_KEYS.componentOpacity]: settings.componentOpacity,
+    [PREFERENCE_KEYS.componentBlur]: settings.componentBlur,
     [PREFERENCE_KEYS.showTokenUsage]: settings.showTokenUsage,
     [PREFERENCE_KEYS.showTimestamps]: settings.showTimestamps,
     [PREFERENCE_KEYS.timestampFormat]: settings.timestampFormat,
@@ -146,16 +190,12 @@ async function persistSecureState() {
 refreshProviderRegistry();
 
 function getActiveProvider() {
-  return MODEL_PROVIDERS[settings.activeProvider] || MODEL_PROVIDERS[DEFAULT_PROVIDER_ID];
+  return MODEL_PROVIDERS[settings.activeProvider] || Object.values(MODEL_PROVIDERS)[0] || null;
 }
 
 function getActiveProviderConfig() {
   const provider = getActiveProvider();
-  return settings.providerConfigs[provider.id] || createDefaultProviderConfigs()[provider.id];
-}
-
-function normalizeWebSearchMode(value) {
-  return WEB_SEARCH_MODES.includes(value) ? value : DEFAULT_WEB_SEARCH_MODE;
+  return provider ? settings.providerConfigs[provider.id] || {} : {};
 }
 
 function normalizeShowTimestamps(value) {
@@ -173,7 +213,14 @@ function applyGlobalFontSize(value) {
 function updateModelSwitchLabel(status = "") {
   const provider = getActiveProvider();
   const config = getActiveProviderConfig();
-  const connected = Boolean(config.apiKey) || provider.type === "custom";
+  if (!provider) {
+    modelSwitchButton.dataset.connected = "false";
+    modelSwitchButton.title = "尚未配置模型。点击打开设置。";
+    modelSwitchButton.setAttribute("aria-label", "模型选择，尚未配置模型");
+    renderModelMenu();
+    return;
+  }
+  const connected = true;
   const connectionLabel = connected ? "已连接" : "未连接";
   const statusLabel = status ? `${status}。` : "";
   modelSwitchButton.dataset.connected = String(connected);
@@ -224,14 +271,26 @@ function renderModelMenu() {
 
 function openModelMenu() {
   closeHistory(false);
+  closeTokenUsageDetails();
   renderModelMenu();
   modelMenu.hidden = false;
+  positionStatusPopup(modelMenu);
   modelSwitchButton.setAttribute("aria-expanded", "true");
+}
+
+function positionStatusPopup(popup) {
+  const statusbarTop = popup.closest(".bottom-dock").querySelector(".statusbar").getBoundingClientRect().top;
+  popup.style.maxHeight = `${Math.max(80, Math.min(window.innerHeight * 0.52, 420, statusbarTop - 16))}px`;
 }
 
 function closeModelMenu() {
   modelMenu.hidden = true;
   modelSwitchButton.setAttribute("aria-expanded", "false");
+}
+
+function closeTokenUsageDetails() {
+  tokenUsageDetails.hidden = true;
+  tokenUsageButton.setAttribute("aria-expanded", "false");
 }
 
 function toggleModelMenu() {
@@ -332,6 +391,8 @@ function applyAppearance(value) {
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty("--bottom-dock-opacity", `${appearance.dockOpacity}%`);
   rootStyle.setProperty("--bottom-dock-blur", `${appearance.dockBlur}px`);
+  rootStyle.setProperty("--component-opacity", `${appearance.componentOpacity}%`);
+  rootStyle.setProperty("--component-blur", `${appearance.componentBlur}px`);
 
   appBackground.style.backgroundColor = appearance.backgroundMode === "solid"
     ? appearance.backgroundColor
@@ -392,7 +453,7 @@ function normalizeMessage(message) {
 }
 
 function supportsImageInput(provider) {
-  return provider.capabilities.imageInput;
+  return Boolean(provider?.capabilities?.imageInput);
 }
 
 function formatFileSize(bytes) {
@@ -507,15 +568,6 @@ async function saveCurrentSession() {
   await saveSessions();
 }
 
-function formatSessionTime(timestamp) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(timestamp));
-}
-
 function renderHistory() {
   historyList.innerHTML = "";
 
@@ -535,16 +587,13 @@ function renderHistory() {
     selectButton.className = "history-select";
     selectButton.type = "button";
     selectButton.dataset.sessionId = session.id;
+    selectButton.setAttribute("aria-current", String(session.id === settings.currentSessionId));
 
     const title = document.createElement("span");
     title.className = "history-title";
     title.textContent = session.title || "新对话";
 
-    const meta = document.createElement("span");
-    meta.className = "history-meta";
-    meta.textContent = `${session.messages.length} 条 · ${formatSessionTime(session.updatedAt)}`;
-
-    selectButton.append(title, meta);
+    selectButton.appendChild(title);
 
     const deleteButton = document.createElement("button");
     deleteButton.className = "history-delete";
@@ -586,9 +635,11 @@ function closeHistoryNotice() {
 
 function openHistory() {
   closeModelMenu();
+  closeTokenUsageDetails();
   closeHistoryNotice();
   renderHistory();
   historyPanel.classList.add("open");
+  positionStatusPopup(historyPanel);
   historyButton.setAttribute("aria-expanded", "true");
   newChatButton.focus();
 }
@@ -622,6 +673,7 @@ function renderMessages(options = {}) {
   messagesEl.innerHTML = "";
 
   if (settings.messages.length === 0) {
+    renderEmptyGreeting();
     return;
   }
 
@@ -951,6 +1003,15 @@ function createMessageFooter(options = {}) {
   return footer;
 }
 
+function syncEditTextareaHeight(textarea) {
+  textarea.style.height = "auto";
+  const maxHeight = Math.min(window.innerHeight * 0.5, 360);
+  const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  scheduleConversationNavigationUpdate();
+}
+
 function appendEditableUserMessage(message, messageIndex) {
   const wrapper = document.createElement("article");
   wrapper.className = "message user editing";
@@ -962,8 +1023,9 @@ function appendEditableUserMessage(message, messageIndex) {
   const textarea = document.createElement("textarea");
   textarea.className = "message-edit-input";
   textarea.value = getMessageText(message);
-  textarea.rows = Math.min(8, Math.max(2, textarea.value.split(/\r?\n/).length));
+  textarea.rows = 2;
   textarea.setAttribute("aria-label", "编辑消息内容");
+  textarea.addEventListener("input", () => syncEditTextareaHeight(textarea));
 
   const images = renderMessageImages(message.images);
 
@@ -981,7 +1043,10 @@ function appendEditableUserMessage(message, messageIndex) {
   saveButton.textContent = "重新发送";
 
   actions.append(cancelButton, saveButton);
-  form.appendChild(textarea);
+  const heading = document.createElement("div");
+  heading.className = "message-edit-heading";
+  heading.textContent = "编辑消息";
+  form.append(heading, textarea);
   if (images) {
     form.appendChild(images);
   }
@@ -989,6 +1054,7 @@ function appendEditableUserMessage(message, messageIndex) {
 
   wrapper.appendChild(form);
   messagesEl.appendChild(wrapper);
+  syncEditTextareaHeight(textarea);
   try {
     textarea.focus({ preventScroll: true });
   } catch {
@@ -1006,12 +1072,143 @@ function scrollMessagesToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function updateConversationNavigation() {
+  const maxScroll = Math.max(0, messagesEl.scrollHeight - messagesEl.clientHeight);
+  const hasConversation = Boolean(messagesEl.querySelector(".message"));
+  const isLongConversation = hasConversation && maxScroll > 40;
+  const userMessages = Array.from(messagesEl.querySelectorAll(".message.user"));
+  const needsRebuild = userMessages.length !== locatorMessages.length
+    || userMessages.some((message, index) => message !== locatorMessages[index]);
+  if (needsRebuild) {
+    locatorMessages = userMessages;
+    activeLocatorIndex = -1;
+    conversationLocator.replaceChildren();
+    locatorTicks = userMessages.map((message, index) => {
+      const tick = document.createElement("span");
+      tick.className = "conversation-locator-tick";
+      tick.dataset.turnIndex = String(index);
+      tick.title = `第 ${index + 1} 轮：${message.querySelector(".message-content")?.textContent?.trim().slice(0, 32) || "图片消息"}`;
+      tick.setAttribute("aria-hidden", "true");
+      conversationLocator.appendChild(tick);
+      return tick;
+    });
+  }
+
+  conversationLocator.hidden = !isLongConversation || userMessages.length === 0;
+  scrollToBottomButton.hidden = !isLongConversation || isMessagesNearBottom();
+  if (conversationLocator.hidden) return;
+
+  const readingLine = messagesEl.scrollTop + Math.min(120, messagesEl.clientHeight * 0.25);
+  let nextActiveIndex = 0;
+  let lower = 0;
+  let upper = userMessages.length - 1;
+  while (lower <= upper) {
+    const middle = Math.floor((lower + upper) / 2);
+    if (userMessages[middle].offsetTop <= readingLine) {
+      nextActiveIndex = middle;
+      lower = middle + 1;
+    } else {
+      upper = middle - 1;
+    }
+  }
+  if (isMessagesNearBottom()) nextActiveIndex = userMessages.length - 1;
+  locatorTicks.forEach((tick, index) => {
+    tick.classList.toggle("is-active", index === nextActiveIndex);
+  });
+  conversationLocator.setAttribute("aria-valuemax", String(userMessages.length));
+  conversationLocator.setAttribute("aria-valuenow", String(nextActiveIndex + 1));
+  conversationLocator.setAttribute("aria-valuetext", `第 ${nextActiveIndex + 1} 轮，共 ${userMessages.length} 轮`);
+  if (nextActiveIndex !== activeLocatorIndex) {
+    activeLocatorIndex = nextActiveIndex;
+    const tickBounds = locatorTicks[nextActiveIndex].getBoundingClientRect();
+    const locatorBounds = conversationLocator.getBoundingClientRect();
+    if (tickBounds.top < locatorBounds.top || tickBounds.bottom > locatorBounds.bottom) {
+      conversationLocator.scrollTop += tickBounds.top - locatorBounds.top
+        - (locatorBounds.height - tickBounds.height) / 2;
+    }
+  }
+}
+
+function scheduleConversationNavigationUpdate() {
+  if (conversationNavigationFrame) return;
+  conversationNavigationFrame = requestAnimationFrame(() => {
+    conversationNavigationFrame = 0;
+    updateConversationNavigation();
+  });
+}
+
+function scrollToUserTurn(index) {
+  const message = locatorMessages[index];
+  if (!message) return;
+  const top = messagesEl.scrollTop + message.getBoundingClientRect().top
+    - messagesEl.getBoundingClientRect().top - 20;
+  messagesEl.scrollTo({ top, behavior: "smooth" });
+}
+
+function scrollToLocatorPointer(clientY) {
+  const nearestTick = locatorTicks.reduce((nearest, tick, index) => {
+    const distance = Math.abs(tick.getBoundingClientRect().top + tick.offsetHeight / 2 - clientY);
+    return distance < nearest.distance ? { index, distance } : nearest;
+  }, { index: -1, distance: Infinity });
+  if (nearestTick.index !== -1) scrollToUserTurn(nearestTick.index);
+}
+
+function initializeConversationNavigation() {
+  document.documentElement.classList.add("conversation-navigation-ready");
+  messagesEl.addEventListener("scroll", scheduleConversationNavigationUpdate, { passive: true });
+  new MutationObserver(scheduleConversationNavigationUpdate).observe(messagesEl, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+  window.addEventListener("resize", scheduleConversationNavigationUpdate);
+  conversationLocator.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    conversationLocator.setPointerCapture(event.pointerId);
+    scrollToLocatorPointer(event.clientY);
+  });
+  conversationLocator.addEventListener("pointermove", (event) => {
+    if (conversationLocator.hasPointerCapture(event.pointerId)) {
+      scrollToLocatorPointer(event.clientY);
+    }
+  });
+  conversationLocator.addEventListener("pointerup", (event) => {
+    if (conversationLocator.hasPointerCapture(event.pointerId)) {
+      conversationLocator.releasePointerCapture(event.pointerId);
+    }
+  });
+  conversationLocator.addEventListener("pointercancel", (event) => {
+    if (conversationLocator.hasPointerCapture(event.pointerId)) {
+      conversationLocator.releasePointerCapture(event.pointerId);
+    }
+  });
+  conversationLocator.addEventListener("keydown", (event) => {
+    const step = event.key === "PageUp" || event.key === "PageDown" ? 5 : 1;
+    const next = {
+      ArrowUp: activeLocatorIndex - step,
+      ArrowDown: activeLocatorIndex + step,
+      PageUp: activeLocatorIndex - step,
+      PageDown: activeLocatorIndex + step,
+      Home: 0,
+      End: locatorMessages.length - 1
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    scrollToUserTurn(Math.min(locatorMessages.length - 1, Math.max(0, next)));
+  });
+  scrollToBottomButton.addEventListener("click", () => {
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: "smooth" });
+  });
+  scheduleConversationNavigationUpdate();
+}
+
 function createAssistantMessageControls(content = "", reasoningContent = "", streaming = false) {
   const body = document.createElement("div");
   body.className = "message-content assistant-content";
 
   const reasoning = document.createElement("details");
   reasoning.className = "reasoning";
+  reasoning.dataset.streaming = String(streaming);
 
   const summary = document.createElement("summary");
   summary.textContent = streaming ? "思考中..." : "思考过程";
@@ -1041,6 +1238,7 @@ function createAssistantMessageControls(content = "", reasoningContent = "", str
 
   function finish() {
     summary.textContent = "思考过程";
+    reasoning.dataset.streaming = "false";
   }
 
   updateReasoning(reasoningContent);
@@ -1059,6 +1257,7 @@ function createAssistantMessageControls(content = "", reasoningContent = "", str
 }
 
 function appendMessage(role, content, options = {}) {
+  messagesEl.querySelector(".empty-greeting")?.remove();
   const wrapper = document.createElement("article");
   wrapper.className = `message ${role}`;
 
@@ -1132,7 +1331,7 @@ async function loadSettings() {
       || secureState.sessions.length !== sessions.length
       || migratedImageCount !== expectedImageCount
       || secureState.config.systemPrompt !== (legacyData.deepseekSystemPrompt || "")
-      || secureState.config.providerConfigs.deepseek.apiKey !== providerConfigs.deepseek.apiKey
+      || JSON.stringify(secureState.config.providerConfigs) !== JSON.stringify(providerConfigs)
     ) {
       throw new Error("旧版数据迁移验证失败，明文数据仍已保留，请重新打开侧边栏后重试。");
     }
@@ -1145,11 +1344,11 @@ async function loadSettings() {
   const requestedProvider = preferenceData[PREFERENCE_KEYS.activeProvider]
     || legacyData.activeModelProvider
     || DEFAULT_PROVIDER_ID;
-  const activeProvider = availableProviderIds.has(requestedProvider) ? requestedProvider : DEFAULT_PROVIDER_ID;
+  const activeProvider = availableProviderIds.has(requestedProvider) ? requestedProvider : [...availableProviderIds][0] || DEFAULT_PROVIDER_ID;
   const preferredModel = preferenceData[PREFERENCE_KEYS.activeModel];
   if (
     typeof preferredModel === "string"
-    && getProviderProfile(providerConfigs, activeProvider).models.some((model) => model.id === preferredModel)
+    && getProviderProfile(providerConfigs, activeProvider)?.models.some((model) => model.id === preferredModel)
   ) {
     providerConfigs[activeProvider].model = preferredModel;
   }
@@ -1160,11 +1359,6 @@ async function loadSettings() {
   settings = {
     activeProvider,
     providerConfigs,
-    webSearchMode: normalizeWebSearchMode(
-      preferenceData[PREFERENCE_KEYS.webSearchMode]
-        ?? legacyData["edgeChat.mimoWebSearchMode"]
-        ?? legacyData.mimoWebSearchMode
-    ),
     theme: preferenceData[PREFERENCE_KEYS.theme] || legacyData.deepseekTheme || DEFAULT_THEME,
     ...normalizeAppearanceSettings({
       backgroundMode: preferenceData[PREFERENCE_KEYS.backgroundMode],
@@ -1173,6 +1367,8 @@ async function loadSettings() {
       backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
       dockOpacity: preferenceData[PREFERENCE_KEYS.dockOpacity],
       dockBlur: preferenceData[PREFERENCE_KEYS.dockBlur],
+      componentOpacity: preferenceData[PREFERENCE_KEYS.componentOpacity],
+      componentBlur: preferenceData[PREFERENCE_KEYS.componentBlur],
       composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
       composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
       statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
@@ -1221,18 +1417,17 @@ async function reloadOptionsConfiguration() {
   const providerConfigs = normalizeProviderConfigs(secureConfig.providerConfigs);
   const availableProviderIds = new Set(getProviderProfiles(providerConfigs).map((provider) => provider.id));
   const requestedProvider = preferenceData[PREFERENCE_KEYS.activeProvider] || DEFAULT_PROVIDER_ID;
-  const activeProvider = availableProviderIds.has(requestedProvider) ? requestedProvider : DEFAULT_PROVIDER_ID;
+  const activeProvider = availableProviderIds.has(requestedProvider) ? requestedProvider : [...availableProviderIds][0] || DEFAULT_PROVIDER_ID;
   const preferredModel = preferenceData[PREFERENCE_KEYS.activeModel];
   if (
     typeof preferredModel === "string"
-    && getProviderProfile(providerConfigs, activeProvider).models.some((model) => model.id === preferredModel)
+    && getProviderProfile(providerConfigs, activeProvider)?.models.some((model) => model.id === preferredModel)
   ) {
     providerConfigs[activeProvider].model = preferredModel;
   }
 
   settings.activeProvider = activeProvider;
   settings.providerConfigs = providerConfigs;
-  settings.webSearchMode = normalizeWebSearchMode(preferenceData[PREFERENCE_KEYS.webSearchMode]);
   settings.theme = preferenceData[PREFERENCE_KEYS.theme] || DEFAULT_THEME;
   Object.assign(settings, normalizeAppearanceSettings({
     backgroundMode: preferenceData[PREFERENCE_KEYS.backgroundMode],
@@ -1241,6 +1436,8 @@ async function reloadOptionsConfiguration() {
     backgroundBrightness: preferenceData[PREFERENCE_KEYS.backgroundBrightness],
     dockOpacity: preferenceData[PREFERENCE_KEYS.dockOpacity],
     dockBlur: preferenceData[PREFERENCE_KEYS.dockBlur],
+    componentOpacity: preferenceData[PREFERENCE_KEYS.componentOpacity],
+    componentBlur: preferenceData[PREFERENCE_KEYS.componentBlur],
     composerOpacity: preferenceData[PREFERENCE_KEYS.composerOpacity],
     composerBlur: preferenceData[PREFERENCE_KEYS.composerBlur],
     statusbarOpacity: preferenceData[PREFERENCE_KEYS.statusbarOpacity],
@@ -1263,56 +1460,26 @@ async function reloadOptionsConfiguration() {
   updateTokenUsageDisplay();
 }
 
-function buildProviderRequestBody(provider, config, options = {}) {
-  return buildChatCompletionRequest({
+function buildProviderRequestBody(provider, options = {}) {
+  const request = {
     profile: provider,
     messages: options.messages || settings.messages,
     systemPrompt: options.includeSystemPrompt === false ? "" : settings.systemPrompt,
     stream: options.stream !== false,
-    maxOutputTokens: options.maxTokens,
-    includeWebSearch: options.includeWebSearch !== false,
-    webSearchMode: settings.webSearchMode,
-    overrides: options.overrides || {}
-  });
-}
-
-function shouldUseDeepSeekWebSearch(provider, options = {}) {
-  return provider.id === "deepseek"
-    && provider.capabilities.webSearch
-    && options.includeWebSearch !== false
-    && settings.webSearchMode !== "off";
+    maxOutputTokens: options.maxTokens
+  };
+  return provider.apiFormat === "anthropic"
+    ? buildAnthropicRequest(request)
+    : buildChatCompletionRequest(request);
 }
 
 function buildStreamingRequest(provider) {
-  if (shouldUseDeepSeekWebSearch(provider)) {
-    return {
-      protocol: "anthropic",
-      endpoint: DEEPSEEK_ANTHROPIC_ENDPOINT,
-      headers: buildDeepSeekAnthropicHeaders(provider),
-      body: buildDeepSeekWebSearchRequest({
-        profile: provider,
-        messages: settings.messages,
-        systemPrompt: settings.systemPrompt,
-        stream: true,
-        webSearchMode: settings.webSearchMode
-      })
-    };
-  }
-
   return {
-    protocol: "chat-completions",
+    protocol: provider.apiFormat === "anthropic" ? "anthropic" : "chat-completions",
     endpoint: provider.endpoint,
     headers: buildAuthHeaders(provider),
-    body: buildProviderRequestBody(provider, getActiveProviderConfig())
+    body: buildProviderRequestBody(provider)
   };
-}
-
-async function rememberCustomCapability(providerId, key, value) {
-  const config = settings.providerConfigs[providerId];
-  if (config?.type !== "custom" || config.capabilityCache?.[key] === value) return;
-  config.capabilityCache = { ...config.capabilityCache, [key]: value };
-  refreshProviderRegistry();
-  await persistSecureState();
 }
 
 async function fetchModelRequest({ endpoint, headers, body }) {
@@ -1331,28 +1498,7 @@ async function callModelStream(onDelta) {
   let request = buildStreamingRequest(provider);
   let response = await fetchModelRequest(request);
 
-  for (let attempt = 0; !response.ok && attempt < 2; attempt += 1) {
-    const error = parseApiError(await response.text(), response.status);
-    if (provider.type === "custom" && request.body.stream_options && isExplicitUnknownParameterError(error, "stream_options")) {
-      await rememberCustomCapability(provider.id, "streamUsage", "implicit");
-    } else if (provider.type === "custom" && request.body.thinking && isExplicitUnknownParameterError(error, "thinking")) {
-      await rememberCustomCapability(provider.id, "thinking", "unsupported");
-    } else {
-      throw error;
-    }
-    provider = getActiveProvider();
-    request = buildStreamingRequest(provider);
-    response = await fetchModelRequest(request);
-  }
-
-  if (!response.ok) {
-    throw parseApiError(await response.text(), response.status);
-  }
-
-  if (provider.type === "custom") {
-    if (request.body.stream_options) await rememberCustomCapability(provider.id, "streamUsage", "include_usage");
-    if (request.body.thinking) await rememberCustomCapability(provider.id, "thinking", "enabled");
-  }
+  if (!response.ok) throw parseApiError(await response.text(), response.status);
 
   if (!response.body) {
     throw new Error(provider.streamUnsupportedMessage);
@@ -1438,69 +1584,18 @@ async function callModelStream(onDelta) {
 
 async function callModelOnce(messages, options = {}) {
   let provider = getActiveProvider();
-  const config = getActiveProviderConfig();
-  let maxOutputField = provider.capabilities.maxOutputField === "auto"
-    ? "max_tokens"
-    : provider.capabilities.maxOutputField;
-  let body = buildProviderRequestBody(provider, config, {
-    messages,
-    stream: false,
-    includeSystemPrompt: false,
-    includeWebSearch: false,
-    maxTokens: options.maxTokens,
-    overrides: { maxOutputField }
+  const body = buildProviderRequestBody(provider, {
+    messages, stream: false, includeSystemPrompt: false, maxTokens: options.maxTokens
   });
-  let response = await fetchModelRequest({
-    endpoint: provider.endpoint,
-    headers: buildAuthHeaders(provider),
-    body
+  const response = await fetchModelRequest({
+    endpoint: provider.endpoint, headers: buildAuthHeaders(provider), body
   });
-
-  for (let attempt = 0; !response.ok && attempt < 2; attempt += 1) {
-    const error = parseApiError(await response.text(), response.status);
-    if (
-      provider.type === "custom"
-      && maxOutputField === "max_tokens"
-      && isExplicitUnknownParameterError(error, "max_tokens")
-    ) {
-      maxOutputField = "max_completion_tokens";
-    } else if (provider.type === "custom" && body.thinking && isExplicitUnknownParameterError(error, "thinking")) {
-      await rememberCustomCapability(provider.id, "thinking", "unsupported");
-    } else {
-      throw error;
-    }
-    provider = getActiveProvider();
-    body = buildProviderRequestBody(provider, config, {
-      messages,
-      stream: false,
-      includeSystemPrompt: false,
-      includeWebSearch: false,
-      maxTokens: options.maxTokens,
-      overrides: { maxOutputField }
-    });
-    response = await fetchModelRequest({
-      endpoint: provider.endpoint,
-      headers: buildAuthHeaders(provider),
-      body
-    });
-  }
-
-  if (!response.ok) {
-    throw parseApiError(await response.text(), response.status);
-  }
-
-  if (provider.type === "custom") {
-    if (Number.isFinite(options.maxTokens)) {
-      await rememberCustomCapability(provider.id, "maxOutputField", maxOutputField);
-    }
-    if (body.thinking) await rememberCustomCapability(provider.id, "thinking", "enabled");
-    provider = getActiveProvider();
-  }
+  if (!response.ok) throw parseApiError(await response.text(), response.status);
 
   const payload = await response.json();
-  const content = payload.choices?.[0]?.message?.content?.trim()
-    || payload.choices?.[0]?.text?.trim()
-    || "";
+  const content = provider.apiFormat === "anthropic"
+    ? (payload.content || []).filter((block) => block.type === "text").map((block) => block.text || "").join("\n").trim()
+    : payload.choices?.[0]?.message?.content?.trim() || payload.choices?.[0]?.text?.trim() || "";
 
   if (!content) {
     throw new Error(provider.emptyResponseMessage);
@@ -1508,7 +1603,7 @@ async function callModelOnce(messages, options = {}) {
 
   return {
     content,
-    usage: normalizeUsage(payload.usage, { providerId: provider.id, model: provider.model })
+    usage: (provider.apiFormat === "anthropic" ? normalizeAnthropicUsage : normalizeUsage)(payload.usage, { providerId: provider.id, model: provider.model })
   };
 }
 
@@ -1556,10 +1651,19 @@ async function compressSessionContext(sessionId, button) {
   }
 
   const provider = getActiveProvider();
-  const providerConfig = getActiveProviderConfig();
-  if (!providerConfig.apiKey && provider.type === "builtin") {
+  if (!provider) {
     openOptionsPage();
-    appendMessage("system", `请先在拓展选项的模型 API 页面保存 ${provider.label} API Key。`);
+    appendMessage("system", "请先在设置页添加模型提供商。");
+    return;
+  }
+
+  try {
+    if (!await chrome.permissions.request({ origins: [provider.permissionOrigin] })) {
+      showHistoryNotice(`需要授权访问 ${provider.origin} 才能压缩对话。`);
+      return;
+    }
+  } catch (error) {
+    showHistoryNotice(`无法申请访问 ${provider.origin}：${error.message}`);
     return;
   }
 
@@ -1710,18 +1814,27 @@ async function addClipboardImages(files) {
   }
 }
 
-function validateOutgoingMessage(images) {
+async function validateOutgoingMessage(images) {
   const provider = getActiveProvider();
-  const providerConfig = getActiveProviderConfig();
+  if (!provider) {
+    openOptionsPage();
+    appendMessage("system", "请先在设置页添加模型提供商。");
+    return false;
+  }
 
   if (images.length > 0 && !supportsImageInput(provider)) {
     appendMessage("system", `当前模型 ${provider.model} 不支持图片输入，请切换到视觉模型后再发送。`);
     return false;
   }
 
-  if (!providerConfig.apiKey && provider.type === "builtin") {
-    openOptionsPage();
-    appendMessage("system", `请先在拓展选项的模型 API 页面保存 ${provider.label} API Key。`);
+  try {
+    const granted = await chrome.permissions.request({ origins: [provider.permissionOrigin] });
+    if (!granted) {
+      appendMessage("system", `需要授权访问 ${provider.origin} 才能发送请求。`);
+      return false;
+    }
+  } catch (error) {
+    appendMessage("system", `无法申请访问 ${provider.origin}：${error.message}`);
     return false;
   }
 
@@ -1783,7 +1896,7 @@ async function requestReplyForCurrentMessages() {
     settingsButton.disabled = false;
     historyButton.disabled = false;
     modelSwitchButton.disabled = false;
-    renderMessages();
+    renderMessages({ preserveScroll: !isMessagesNearBottom() });
     if (errorMessage) {
       appendMessage("system", errorMessage);
     }
@@ -1803,8 +1916,19 @@ modelSwitchButton.addEventListener("click", () => {
 tokenUsageButton.addEventListener("click", () => {
   if (!tokenUsageDetails.innerHTML) return;
   const open = tokenUsageDetails.hidden;
+  if (open) {
+    closeModelMenu();
+    closeHistory(false);
+  }
   tokenUsageDetails.hidden = !open;
+  if (open) positionStatusPopup(tokenUsageDetails);
   tokenUsageButton.setAttribute("aria-expanded", String(open));
+});
+
+window.addEventListener("resize", () => {
+  if (!modelMenu.hidden) positionStatusPopup(modelMenu);
+  if (historyPanel.classList.contains("open")) positionStatusPopup(historyPanel);
+  if (!tokenUsageDetails.hidden) positionStatusPopup(tokenUsageDetails);
 });
 
 modelMenu.addEventListener("click", async (event) => {
@@ -1822,7 +1946,7 @@ modelMenu.addEventListener("click", async (event) => {
   settings.providerConfigs = normalizeProviderConfigs({
     ...settings.providerConfigs,
     [providerId]: {
-      ...getActiveProviderConfig(),
+      ...settings.providerConfigs[providerId],
       model
     }
   });
@@ -1849,8 +1973,7 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("click", (event) => {
   if (tokenUsageDetails.hidden || tokenUsageDetails.contains(event.target) || tokenUsageButton.contains(event.target)) return;
-  tokenUsageDetails.hidden = true;
-  tokenUsageButton.setAttribute("aria-expanded", "false");
+  closeTokenUsageDetails();
 });
 
 historyButton.addEventListener("click", () => {
@@ -1969,6 +2092,9 @@ messagesEl.addEventListener("click", (event) => {
 
   editingMessageIndex = messageIndex;
   renderMessages({ preserveScroll: true });
+  requestAnimationFrame(() => {
+    messagesEl.querySelector(".message.user.editing")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
 });
 
 messagesEl.addEventListener("click", (event) => {
@@ -1976,7 +2102,7 @@ messagesEl.addEventListener("click", (event) => {
   if (!cancelButton) return;
 
   editingMessageIndex = -1;
-  renderMessages();
+  renderMessages({ preserveScroll: true });
 });
 
 messagesEl.addEventListener("submit", async (event) => {
@@ -1998,7 +2124,7 @@ messagesEl.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (!validateOutgoingMessage(images)) {
+  if (!await validateOutgoingMessage(images)) {
     return;
   }
 
@@ -2027,6 +2153,10 @@ messageInput.addEventListener("keydown", (event) => {
 
 messageInput.addEventListener("input", syncComposerHeight);
 window.addEventListener("resize", syncComposerHeight);
+window.addEventListener("resize", () => {
+  const editInput = messagesEl.querySelector(".message-edit-input");
+  if (editInput) syncEditTextareaHeight(editInput);
+});
 
 messageInput.addEventListener("paste", async (event) => {
   const items = Array.from(event.clipboardData?.items || []);
@@ -2059,7 +2189,7 @@ chatForm.addEventListener("submit", async (event) => {
   const images = normalizeImageAttachments(pendingImages);
   if (!content && images.length === 0) return;
 
-  if (!validateOutgoingMessage(images)) {
+  if (!await validateOutgoingMessage(images)) {
     return;
   }
 
@@ -2092,6 +2222,7 @@ if (globalThis.chrome?.runtime?.onMessage) {
   });
 }
 
+initializeConversationNavigation();
 syncComposerHeight();
 
 loadSettings().catch((error) => {

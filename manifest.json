@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Edge Chat Sidebar",
-  "version": "2.2.2",
-  "description": "在 Microsoft Edge 侧栏中调用你配置的 LLM API，支持 DeepSeek、MiMo、多模态对话、联网搜索和本地加密历史。",
+  "version": "3.0.0",
+  "description": "在 Microsoft Edge 侧栏中调用你配置的 LLM API，支持自定义模型 API、多模态对话和本地加密历史。",
   "homepage_url": "https://github.com/HaoZhong03/EdgeChatSidebar",
   "icons": {
     "16": "assets/icon-16.png",
@@ -33,10 +33,6 @@
     "sidePanel",
     "storage",
     "unlimitedStorage"
-  ],
-  "host_permissions": [
-    "https://api.deepseek.com/*",
-    "https://api.xiaomimimo.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*",

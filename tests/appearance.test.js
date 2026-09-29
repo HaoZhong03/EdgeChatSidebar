@@ -55,6 +55,25 @@ test("legacy independent panels migrate into one bottom dock effect", () => {
   });
 });
 
+test("shared component effects remain independent of the bottom dock", () => {
+  const settings = normalizeAppearanceSettings({
+    dockOpacity: 80,
+    dockBlur: 4,
+    componentOpacity: "35",
+    componentBlur: "18"
+  });
+  assert.equal(settings.dockOpacity, 80);
+  assert.equal(settings.dockBlur, 4);
+  assert.equal(settings.componentOpacity, 35);
+  assert.equal(settings.componentBlur, 18);
+  const bounded = normalizeAppearanceSettings({ componentOpacity: -5, componentBlur: 99 });
+  assert.equal(bounded.componentOpacity, 0);
+  assert.equal(bounded.componentBlur, 30);
+  const fallback = normalizeAppearanceSettings({ componentOpacity: "invalid", componentBlur: null });
+  assert.equal(fallback.componentOpacity, DEFAULT_APPEARANCE_SETTINGS.componentOpacity);
+  assert.equal(fallback.componentBlur, DEFAULT_APPEARANCE_SETTINGS.componentBlur);
+});
+
 test("background tone uses a white overlay instead of over-brightening the image", () => {
   assert.deepEqual(getBackgroundImageTone(80), {
     imageBrightness: 80,

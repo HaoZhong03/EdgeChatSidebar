@@ -17,6 +17,8 @@ export const PREFERENCE_KEYS = Object.freeze({
   backgroundBrightness: "edgeChat.backgroundBrightness",
   dockOpacity: "edgeChat.dockOpacity",
   dockBlur: "edgeChat.dockBlur",
+  componentOpacity: "edgeChat.componentOpacity",
+  componentBlur: "edgeChat.componentBlur",
   // Retained so v2.0 settings can be migrated into the unified bottom card.
   composerOpacity: "edgeChat.composerOpacity",
   composerBlur: "edgeChat.composerBlur",
@@ -555,10 +557,7 @@ export async function clearAllLocalData() {
 
 export async function removeDynamicHostPermissions() {
   if (!globalThis.chrome?.permissions?.getAll) return 0;
-  const requiredOrigins = new Set([
-    "https://api.deepseek.com/*",
-    "https://api.xiaomimimo.com/*"
-  ]);
+  const requiredOrigins = new Set();
   const granted = await chrome.permissions.getAll();
   const dynamicOrigins = (granted.origins || []).filter((origin) => !requiredOrigins.has(origin));
   if (dynamicOrigins.length > 0) {

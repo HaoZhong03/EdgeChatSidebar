@@ -8,10 +8,7 @@ test("manifest registers the dedicated options page", async () => {
     page: "options.html",
     open_in_tab: true
   });
-  assert.deepEqual(manifest.host_permissions, [
-    "https://api.deepseek.com/*",
-    "https://api.xiaomimimo.com/*"
-  ]);
+  assert.equal(manifest.host_permissions, undefined);
   assert.deepEqual(manifest.optional_host_permissions, [
     "https://*/*",
     "http://localhost/*",
@@ -40,10 +37,14 @@ test("settings controls live on the options page and the sidebar opens it", asyn
     "showTimestampsInput",
     "timestampFormatSelect",
     "systemPromptInput",
-    "webSearchModeSelect",
-    "deepseekApiKeyInput",
-    "mimoApiKeyInput",
+    "customProviderFormatInput",
+    "customProviderFields",
+    "openProviderDetailsButton",
+    "providerDetailsDialog",
     "customProviderList",
+    "exportConfigButton",
+    "importConfigButton",
+    "importConfigInput",
     "cleanupCacheButton",
     "clearAllDataButton",
     "saveSettingsButton",

@@ -25,7 +25,9 @@ export const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
   backgroundImage: "",
   backgroundBrightness: 100,
   dockOpacity: 100,
-  dockBlur: 0
+  dockBlur: 0,
+  componentOpacity: 95,
+  componentBlur: 12
 });
 
 export function normalizeBackgroundMode(value) {
@@ -115,6 +117,10 @@ export function normalizeAppearanceSettings(value = {}) {
       0,
       30,
       DEFAULT_APPEARANCE_SETTINGS.dockBlur
-    )
+    ),
+    componentOpacity: normalizeNumber(value.componentOpacity ?? DEFAULT_APPEARANCE_SETTINGS.componentOpacity,
+      0, 100, DEFAULT_APPEARANCE_SETTINGS.componentOpacity),
+    componentBlur: normalizeNumber(value.componentBlur ?? DEFAULT_APPEARANCE_SETTINGS.componentBlur,
+      0, 30, DEFAULT_APPEARANCE_SETTINGS.componentBlur)
   };
 }

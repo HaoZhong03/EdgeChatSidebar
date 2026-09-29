@@ -1,233 +1,69 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { webcrypto } from "node:crypto";
 import {
-  DEEPSEEK_ANTHROPIC_ENDPOINT,
-  DEEPSEEK_MULTIMODAL_MODEL,
-  buildAuthHeaders,
-  buildChatCompletionRequest,
-  buildDeepSeekAnthropicHeaders,
-  buildDeepSeekWebSearchRequest,
-  createAnthropicStreamAccumulator,
-  createDefaultProviderConfigs,
-  createStreamAccumulator,
-  getProviderProfile,
-  isExplicitUnknownParameterError,
-  normalizeAnthropicUsage,
-  normalizeCustomProvider,
-  normalizeProviderConfigs,
-  normalizeUsage,
-  parseApiError,
-  validateCustomEndpoint
+  buildAnthropicRequest, buildAuthHeaders, buildChatCompletionRequest,
+  createAnthropicStreamAccumulator, createDefaultProviderConfigs,
+  createStreamAccumulator, getProviderProfile, getProviderProfiles,
+  normalizeAnthropicUsage, normalizeCustomProvider, normalizeProviderConfigs,
+  normalizeUsage, validateCustomEndpoint
 } from "../providers.js";
 
-test("DeepSeek Flash sends images through Chat Completions and Anthropic web search", () => {
-  const configs = createDefaultProviderConfigs();
-  const profile = getProviderProfile(configs, "deepseek");
-  const messages = [{
-    role: "user",
-    content: "look",
-    images: [{ dataUrl: "data:image/png;base64,AA==" }]
-  }];
+globalThis.crypto ??= webcrypto;
 
-  assert.equal(profile.model, DEEPSEEK_MULTIMODAL_MODEL);
-  assert.equal(profile.capabilities.imageInput, true);
-  assert.equal(profile.models.some((model) => model.id === DEEPSEEK_MULTIMODAL_MODEL), true);
-  assert.deepEqual(buildChatCompletionRequest({ profile, messages, stream: false }).messages, [{
-    role: "user",
-    content: [
-      { type: "text", text: "look" },
-      { type: "image_url", image_url: { url: "data:image/png;base64,AA==" } }
-    ]
-  }]);
-  assert.deepEqual(buildDeepSeekWebSearchRequest({
-    profile,
-    messages,
-    stream: true,
-    webSearchMode: "auto"
-  }).messages, [{
-    role: "user",
-    content: [
-      { type: "text", text: "look" },
-      {
-        type: "image",
-        source: { type: "base64", media_type: "image/png", data: "AA==" }
-      }
-    ]
-  }]);
-});
-
-test("DeepSeek request follows its Chat Completions profile", () => {
-  const configs = createDefaultProviderConfigs();
-  configs.deepseek.apiKey = "secret";
-  const profile = getProviderProfile(configs, "deepseek");
-  const body = buildChatCompletionRequest({
-    profile,
-    messages: [{ role: "user", content: "hello" }],
-    systemPrompt: "brief",
-    stream: true,
-    maxOutputTokens: 256,
-    webSearchMode: "force"
-  });
-
-  assert.equal(profile.endpoint, "https://api.deepseek.com/chat/completions");
-  assert.equal(profile.capabilities.webSearch, true);
-  assert.equal(profile.capabilities.imageInput, true);
+test("new installs start without a provider or hidden request fields", () => {
+  assert.deepEqual(createDefaultProviderConfigs(), {});
+  assert.deepEqual(getProviderProfiles({}), []);
+  const config = normalizeCustomProvider({ label: "Example", baseUrl: "https://example.com/v1", models: "a\nb", apiKey: "secret" }, "custom-id");
+  const profile = getProviderProfile({ [config.id]: config }, config.id);
+  assert.equal(profile.endpoint, "https://example.com/v1/chat/completions");
   assert.deepEqual(buildAuthHeaders(profile), { Authorization: "Bearer secret" });
-  assert.deepEqual(body, {
-    model: "deepseek-flash",
-    messages: [
-      { role: "system", content: "brief" },
-      { role: "user", content: "hello" }
-    ],
-    stream: true,
-    stream_options: { include_usage: true },
-    thinking: { type: "enabled" },
-    max_tokens: 256
+  assert.deepEqual(buildChatCompletionRequest({ profile, messages: [{ role: "user", content: "hi" }] }), {
+    model: "a", messages: [{ role: "user", content: "hi" }], stream: true
+  });
+  assert.deepEqual(buildChatCompletionRequest({ profile, messages: [], stream: false }), { model: "a", messages: [] });
+});
+
+test("optional fields use explicit JSON values and reject required or malformed fields", () => {
+  const config = normalizeCustomProvider({ label: "Example", baseUrl: "https://example.com", models: "m",
+    optionalFields: [{ key: "temperature", value: "0.7" }, { key: "thinking", value: '{"type":"enabled"}' }, { key: "metadata", value: "null" }] }, "id");
+  const profile = getProviderProfile({ id: config }, "id");
+  assert.deepEqual(buildChatCompletionRequest({ profile, messages: [] }), {
+    model: "m", messages: [], stream: true, temperature: 0.7, thinking: { type: "enabled" }, metadata: null
+  });
+  assert.throws(() => normalizeCustomProvider({ label: "x", baseUrl: "https://x.test", models: "m", optionalFields: [{ key: "model", value: '"x"' }] }), /保留/);
+  assert.throws(() => normalizeCustomProvider({ label: "x", baseUrl: "https://x.test", models: "m", optionalFields: [{ key: "tools", value: "not JSON" }] }), /JSON/);
+  assert.throws(() => normalizeCustomProvider({ label: "x", baseUrl: "https://x.test", apiFormat: "anthropic", models: "m", optionalFields: [{ key: "max_tokens", value: "null" }] }), /正整数/);
+});
+
+test("Anthropic format builds required messages and configured fields", () => {
+  const config = normalizeCustomProvider({ label: "Anthropic", apiFormat: "anthropic", baseUrl: "https://example.com/v1", apiKey: "key", models: "m",
+    optionalFields: [{ key: "temperature", value: "0.2" }] }, "id");
+  const profile = getProviderProfile({ id: config }, "id");
+  assert.equal(profile.endpoint, "https://example.com/v1/messages");
+  assert.deepEqual(buildAuthHeaders(profile), { "x-api-key": "key", "anthropic-version": "2023-06-01" });
+  assert.deepEqual(buildAnthropicRequest({ profile, messages: [{ role: "user", content: "hi" }], stream: false }), {
+    model: "m", messages: [{ role: "user", content: "hi" }], max_tokens: 4096, temperature: 0.2
   });
 });
 
-test("DeepSeek web search uses the official Anthropic-compatible transport", () => {
-  const configs = createDefaultProviderConfigs();
-  configs.deepseek.apiKey = "secret";
-  const profile = getProviderProfile(configs, "deepseek");
-  const body = buildDeepSeekWebSearchRequest({
-    profile,
-    messages: [
-      { role: "system", content: "session summary" },
-      { role: "user", content: "latest news" },
-      { role: "assistant", content: "previous answer" }
-    ],
-    systemPrompt: "brief",
-    stream: true,
-    webSearchMode: "force"
-  });
-
-  assert.equal(DEEPSEEK_ANTHROPIC_ENDPOINT, "https://api.deepseek.com/anthropic/v1/messages");
-  assert.deepEqual(buildDeepSeekAnthropicHeaders(profile), {
-    "x-api-key": "secret",
-    "anthropic-version": "2023-06-01"
-  });
-  assert.deepEqual(body, {
-    model: "deepseek-flash",
-    messages: [
-      { role: "user", content: "latest news" },
-      { role: "assistant", content: "previous answer" }
-    ],
-    stream: true,
-    max_tokens: 8192,
-    thinking: { type: "enabled", budget_tokens: 4096 },
-    system: "brief\n\nsession summary",
-    tools: [{
-      type: "web_search_20260209",
-      name: "web_search",
-      max_uses: 3,
-      allowed_callers: ["direct"]
-    }],
-    tool_choice: { type: "any" }
-  });
+test("saved built-in models migrate into editable custom providers with secrets", () => {
+  const configs = normalizeProviderConfigs({ deepseek: { type: "builtin", apiKey: "deep-secret", model: "deepseek-v4-flash" },
+    mimo: { type: "builtin", apiKey: "mimo-secret", model: "mimo-v2.5" } });
+  assert.equal(configs.deepseek.type, "custom");
+  assert.equal(configs.deepseek.model, "deepseek-flash");
+  assert.equal(configs.deepseek.apiKey, "deep-secret");
+  assert.equal(configs.mimo.apiKey, "mimo-secret");
+  assert.equal(configs.mimo.baseUrl, "https://api.xiaomimimo.com/v1");
+  const custom = normalizeProviderConfigs({ legacy: { type: "custom", label: "Old", endpoint: "https://example.com/v1/chat/completions", models: ["m"] } });
+  assert.equal(custom.legacy.endpoint, "https://example.com/v1/chat/completions");
 });
 
-test("MiMo uses api-key, max_completion_tokens, implicit stream usage, image and search fields", () => {
-  const configs = createDefaultProviderConfigs();
-  configs.mimo.apiKey = "mimo-secret";
-  const profile = getProviderProfile(configs, "mimo");
-  const body = buildChatCompletionRequest({
-    profile,
-    messages: [{
-      role: "user",
-      content: "look",
-      images: [{ dataUrl: "data:image/png;base64,AA==" }]
-    }],
-    stream: true,
-    maxOutputTokens: 300,
-    webSearchMode: "force"
-  });
-
-  assert.equal(profile.endpoint, "https://api.xiaomimimo.com/v1/chat/completions");
-  assert.deepEqual(buildAuthHeaders(profile), { "api-key": "mimo-secret" });
-  assert.equal(body.max_completion_tokens, 300);
-  assert.equal("max_tokens" in body, false);
-  assert.equal("stream_options" in body, false);
-  assert.deepEqual(body.thinking, { type: "enabled" });
-  assert.equal(body.messages[0].content[1].type, "image_url");
-  assert.deepEqual(body.tools, [{ type: "web_search", max_keyword: 3, force_search: true, limit: 1 }]);
-
-  configs.mimo.model = "mimo-v2.5-pro";
-  const textOnlyProfile = getProviderProfile(configs, "mimo");
-  assert.equal(textOnlyProfile.capabilities.imageInput, false);
-  assert.equal(buildChatCompletionRequest({
-    profile: textOnlyProfile,
-    messages: [{ role: "user", content: "look", images: [{ dataUrl: "data:image/png;base64,AA==" }] }]
-  }).messages[0].content, "look");
-});
-
-test("legacy MiMo endpoint overrides cannot replace the fixed official endpoint", () => {
-  const configs = normalizeProviderConfigs({
-    mimo: {
-      apiKey: "key",
-      apiUrl: "https://api.mimo.xiaomi.com/v1/chat/completions",
-      model: "mimo-v2.5"
-    }
-  });
-  assert.equal(getProviderProfile(configs, "mimo").endpoint, "https://api.xiaomimimo.com/v1/chat/completions");
-});
-
-test("custom providers support multiple models and optional Bearer auth", () => {
-  const custom = normalizeCustomProvider({
-    label: "Compatible",
-    endpoint: "https://example.com/v1/chat/completions",
-    apiKey: "token",
-    models: "model-a\nmodel-b\nmodel-a"
-  }, "custom-id");
-  const configs = normalizeProviderConfigs({ ...createDefaultProviderConfigs(), [custom.id]: custom });
-  const profile = getProviderProfile(configs, custom.id);
-
-  assert.deepEqual(profile.models.map((model) => model.id), ["model-a", "model-b"]);
-  assert.deepEqual(buildAuthHeaders(profile), { Authorization: "Bearer token" });
-  profile.auth.apiKey = "";
-  assert.deepEqual(buildAuthHeaders(profile), {});
-  const body = buildChatCompletionRequest({
-    profile,
-    messages: [{ role: "user", content: "hello", images: [{ dataUrl: "data:image/png;base64,AA==" }] }],
-    stream: true,
-    maxOutputTokens: 100
-  });
-  assert.equal(body.messages[0].content, "hello");
-  assert.equal(body.max_tokens, 100);
-  assert.deepEqual(body.stream_options, { include_usage: true });
-  assert.deepEqual(body.thinking, { type: "enabled" });
-  assert.equal("tools" in body, false);
-
-  custom.capabilityCache.thinking = "unsupported";
-  const noThinkingProfile = getProviderProfile(
-    normalizeProviderConfigs({ ...createDefaultProviderConfigs(), [custom.id]: custom }),
-    custom.id
-  );
-  assert.equal("thinking" in buildChatCompletionRequest({
-    profile: noThinkingProfile,
-    messages: [{ role: "user", content: "hello" }],
-    stream: true
-  }), false);
-});
-
-test("custom endpoint validation accepts HTTPS and loopback HTTP only", () => {
-  assert.equal(validateCustomEndpoint("https://example.com/v1/chat/completions").permissionOrigin, "https://example.com/*");
-  assert.equal(validateCustomEndpoint("http://localhost:1234/v1/chat/completions").permissionOrigin, "http://localhost:1234/*");
-  assert.equal(validateCustomEndpoint("http://127.0.0.1/v1/chat/completions").origin, "http://127.0.0.1");
-  assert.throws(() => validateCustomEndpoint("http://example.com/v1/chat/completions"), /HTTPS/);
-  assert.throws(() => validateCustomEndpoint("https://user:pass@example.com/v1/chat/completions"), /用户名或密码/);
-  assert.throws(() => validateCustomEndpoint("https://example.com/v1/chat/completions#x"), /fragment/);
-  assert.throws(() => validateCustomEndpoint("http://localhost.example.com/v1/chat/completions"), /HTTPS/);
-});
-
-test("compatibility retry detection requires an explicit unknown-field client error", () => {
-  const unknownStream = parseApiError('{"error":{"message":"Unknown parameter: stream_options"}}', 400);
-  const authError = parseApiError('{"error":{"message":"Invalid API key; stream_options was present"}}', 401);
-  assert.equal(isExplicitUnknownParameterError(unknownStream, "stream_options"), true);
-  assert.equal(isExplicitUnknownParameterError(authError, "stream_options"), false);
-  assert.equal(isExplicitUnknownParameterError(unknownStream, "max_tokens"), false);
-  const forbiddenThinking = parseApiError('{"detail":[{"type":"extra_forbidden","loc":["body","thinking"]}]}', 422);
-  assert.equal(isExplicitUnknownParameterError(forbiddenThinking, "thinking"), true);
+test("base URL validation restricts public HTTP and rejects embedded credentials", () => {
+  assert.equal(validateCustomEndpoint("http://localhost:1234/v1").permissionOrigin, "http://localhost:1234/*");
+  assert.throws(() => validateCustomEndpoint("http://example.com/v1"), /HTTPS/);
+  assert.throws(() => validateCustomEndpoint("https://u:p@example.com"), /用户名或密码/);
+  assert.throws(() => validateCustomEndpoint("https://example.com/v1?x=1"), /查询参数/);
 });
 
 test("usage mapping keeps only measured provider fields", () => {
@@ -338,30 +174,4 @@ test("custom SSE accumulator separates a leading think block from answer content
   stream.push('{"choices":[{"delta":{"content":" second</think>answer"}}]}');
   assert.equal(stream.result().reasoningContent, "first second");
   assert.equal(stream.result().content, "answer");
-});
-
-
-test("retired built-in Flash selections migrate to image-capable deepseek-flash", () => {
-  for (const model of ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]) {
-    for (const configs of [
-      normalizeProviderConfigs({ deepseek: { apiKey: "secret", model } }),
-      normalizeProviderConfigs({}, "secret", model)
-    ]) {
-      const profile = getProviderProfile(configs, "deepseek");
-      assert.equal(profile.model, "deepseek-flash");
-      assert.equal(profile.auth.apiKey, "secret");
-      assert.equal(profile.capabilities.imageInput, true);
-      assert.deepEqual(profile.models.map((item) => item.id), ["deepseek-flash", "deepseek-v4-pro"]);
-      assert.equal(buildChatCompletionRequest({ profile, messages: [] }).model, "deepseek-flash");
-      assert.equal(buildDeepSeekWebSearchRequest({ profile, messages: [] }).model, "deepseek-flash");
-    }
-  }
-});
-
-test("DeepSeek Pro selection remains text-only", () => {
-  const configs = normalizeProviderConfigs({ deepseek: { apiKey: "secret", model: "deepseek-v4-pro" } });
-  const profile = getProviderProfile(configs, "deepseek");
-  assert.equal(profile.model, "deepseek-v4-pro");
-  assert.equal(profile.capabilities.imageInput, false);
-  assert.equal(profile.capabilities.webSearch, true);
 });
